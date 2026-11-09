@@ -1,0 +1,20 @@
+# environments and caches
+.venv/
+venv*/
+__pycache__/
+*.pyc
+.uv-cache/
+# large or local-only artifacts
+kvstore/
+scratch_state/
+*.safetensors
+*.pt
+*.bin
+# logs
+logs/
+*.log
+*.pid
+# local settings
+settings.json
+server.env
+.iotest/
