@@ -1,0 +1,15 @@
+# Analysis/figure venv (.venv-analysis), CPU only. Python 3.12.3.
+# Recreate: uv venv --python /usr/bin/python3.12 .venv-analysis && uv pip install --python .venv-analysis/bin/python -r env/requirements-analysis.txt
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.68.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.5.4
+packaging==26.3
+pandas==3.1.1
+pillow==13.0.0
+pyarrow==26.0.1
+pyparsing==3.3.3
+python-dateutil==4.0.0
+tzdata==2026.6
