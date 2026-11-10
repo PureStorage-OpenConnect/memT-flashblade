@@ -765,6 +765,102 @@ def fig_e3_loader_overhead(e3, out, target="rdma"):
          "target (CPU-bound copy, not storage). Label = slowdown factor.")
 
 
+def load_conc_sweep(res):
+    recs = read_jsonl(os.path.join(res, "e3_conc_sweep_small.jsonl"))
+    if not recs:
+        return None
+    d = pd.json_normalize(recs, max_level=0)
+    if "op" not in d:
+        return None
+    d = d[d.op == "conc_read_cold"].copy()
+    if not len(d):
+        return None
+    d = d.sort_values("ts").drop_duplicates(["target", "label", "concurrency"], keep="last") if "ts" in d else d
+    d["concurrency"] = d["concurrency"].astype(int)
+    return d
+
+
+def fig_e3_conc_sweep(cs, out):
+    name = "fig_e3_conc_sweep"
+    if cs is None:
+        return not_available(name, "results/e3_conc_sweep_small.jsonl missing")
+    labels = [l for l in ("memt", "kv@512") if l in set(cs.label)] or sorted(cs.label.unique(), key=obj_order)
+    ks = sorted(cs.concurrency.unique())
+    fig, axes = plt.subplots(2, len(labels), figsize=(5.4 * len(labels), 7.0), sharex=True, squeeze=False)
+    gmax = max(20, cs["agg_gbps_max"].max() * 1.1)
+    def place(ax, items, close):
+        # items: (x, y, text); nudge apart end labels whose values nearly coincide
+        items = sorted(items, key=lambda it: it[1])
+        for i, (x, y, txt) in enumerate(items):
+            dy = 0
+            if i > 0 and close(items[i - 1][1], y):
+                dy = 7
+            elif i + 1 < len(items) and close(y, items[i + 1][1]):
+                dy = -7
+            end_label(ax, x, y, txt, dy=dy)
+
+    for j, lab in enumerate(labels):
+        top, bot = axes[0][j], axes[1][j]
+        tl, bl = [], []
+        for t in ("rdma", "tcp", "local"):
+            g = cs[(cs.label == lab) & (cs.target == t)].sort_values("concurrency")
+            if not len(g):
+                continue
+            c, m = C_T[t], M_T[t]
+            top.fill_between(g["concurrency"], g["agg_gbps_min"], g["agg_gbps_max"], color=c, alpha=0.15,
+                             linewidth=0)
+            top.plot(g["concurrency"], g["agg_gbps_median"], color=c, marker=m, label=f"{t} median (band = min-max)")
+            bot.plot(g["concurrency"], g["lat_p95_s"], color=c, marker=m, label=f"{t} p95")
+            r = g.iloc[-1]
+            tl.append((r["concurrency"], r["agg_gbps_median"], f"{t} {r['agg_gbps_median']:.1f}"))
+            bl.append((r["concurrency"], r["lat_p95_s"], f"{t} {r['lat_p95_s'] * 1e3:.0f} ms"))
+        place(top, tl, lambda a, b: abs(b - a) < 0.08 * gmax)
+        place(bot, bl, lambda a, b: b / a < 1.35)
+        b = cs[cs.label == lab]["bytes"].iloc[0] if "bytes" in cs else None
+        top.set_title(f"{obj_name(lab)}" + (f" ({fmt_bytes(b, 1)}/session)" if b else ""))
+        top.set_ylim(0, gmax)
+        top.set_ylabel("aggregate restore GB/s" if j == 0 else "")
+        sub = cs[cs.label == lab]
+        sec_axis(bot, max(0.003, sub["lat_p95_s"].min() / 1.6), sub["lat_p95_s"].max() * 1.8)
+        bot.set_ylabel("p95 per-session latency" if j == 0 else "")
+        for ax in (top, bot):
+            ax.set_xscale("log", base=2)
+            ax.xaxis.set_major_locator(FixedLocator(ks))
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(v)}"))
+            ax.xaxis.set_minor_locator(NullLocator())
+            ax.set_xlim(min(ks) / 1.3, max(ks) * 3.2)
+        bot.set_xlabel("concurrent sessions K")
+    axes[0][0].legend(loc="upper left", fontsize=8)
+    axes[1][0].legend(loc="upper left", fontsize=8)
+    fig.suptitle("E3  Small-object cold-restore concurrency sweep (FlashBlade, idle storage path)", x=0.01,
+                 ha="left", fontweight="bold", color=TXT)
+    fig.tight_layout()
+    runs = ", ".join(sorted(cs["run_id"].dropna().unique())) if "run_id" in cs else "?"
+    reps = int(cs["reps"].median()) if "reps" in cs else "?"
+    save(fig, out, name,
+         f"Source e3_conc_sweep_small.jsonl (run {runs}), {reps} reps per point, run with the storage path "
+         "otherwise idle. K processes each read a distinct file with O_DIRECT behind a barrier; top = aggregate "
+         "GB/s (median, band = min-max over reps), bottom = p95 per-session latency. This sweep supersedes the "
+         "K=8/32 small-object cells of e3_recheck_rdma_small.jsonl for the question of whether the RDMA dip is "
+         "real: tcp stays flat at ~16-17 GB/s from K=8 up, while rdma drops at K=32 (memt median 5.2 GB/s, but "
+         "max 14.4 GB/s, so the dip is intermittent across reps). The fig_e3_concurrency figures keep their "
+         "original sources.")
+
+
+def conc_sweep_table(cs):
+    rows = []
+    for lab in sorted(cs.label.unique(), key=obj_order):
+        for t in ("rdma", "tcp", "local"):
+            g = cs[(cs.label == lab) & (cs.target == t)].sort_values("concurrency")
+            for _, r in g.iterrows():
+                rows.append({"object": obj_name(lab), "target": t, "K": int(r["concurrency"]),
+                             "GB/s median [min-max]": f"{r['agg_gbps_median']:.2f} [{r['agg_gbps_min']:.2f}-"
+                                                      f"{r['agg_gbps_max']:.2f}]",
+                             "p50 ms": r["lat_p50_s"] * 1e3, "p95 ms": r["lat_p95_s"] * 1e3,
+                             "per-session GB/s": r.get("per_session_gbps_p50", np.nan)})
+    return pd.DataFrame(rows)
+
+
 # ------------------------------------------------------------------ E4
 def load_e4_ttft(res):
     """Return (df, source_desc, feasibility_flag)."""
@@ -1011,7 +1107,7 @@ def fig_e4_memt_resume(res, out):
 
 
 # ------------------------------------------------------------------ summary
-def build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4feas, bt):
+def build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4feas, bt, cs=None):
     L = []
     now = _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     L.append("# MemT-1.0 reproduction: results summary\n")
@@ -1181,6 +1277,13 @@ def build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4fea
                  "tcp kv@2K's 1st buffered read (3.78 GB/s) is an exception where the client kept its cache.\n")
     else:
         L.append("_No E3 data._\n")
+    if cs is not None and len(cs):
+        L.append("\n### Small-object concurrency sweep (cold O_DIRECT, idle path)\n")
+        L.append(f"Source e3_conc_sweep_small.jsonl (run {', '.join(sorted(cs['run_id'].dropna().unique()))}, "
+                 f"{int(cs['reps'].median())} reps); supersedes the recheck's K=8/32 small-object cells for the "
+                 "RDMA-dip question. GB/s = aggregate (1e9 B/s).\n")
+        L.append(md_table(conc_sweep_table(cs), {"p50 ms": "{:.1f}", "p95 ms": "{:.1f}",
+                                                 "per-session GB/s": "{:.2f}"}))
 
     # E4
     L.append("\n## E4  vLLM + pKVA production path\n")
@@ -1327,6 +1430,7 @@ def main():
         quality("E3: kv@N objects are synthetic (random BF16-entropy data) with FP32 GDN recurrent state and a "
                 "width-3 conv state, ~0.5 MB smaller than the HF-measured FP32-GDN accounting")
     e2 = e2_table(ok, val)
+    cs = load_conc_sweep(res)
     e4, stores, e4src, e4feas = load_e4_ttft(res)
     bt = e4_bytes(e4, stores) if e4 is not None else None
     if e4feas and e4 is not None:
@@ -1344,6 +1448,7 @@ def main():
         lambda: fig_e3_restore_latency(e3, args.out),
         lambda: fig_e3_concurrency(e3, args.out),
         lambda: fig_e3_loader_overhead(e3, args.out),
+        lambda: fig_e3_conc_sweep(cs, args.out),
         lambda: fig_e4_pkva_ttft(e4, e4src, e4feas, args.out),
         lambda: fig_e4_bytes(bt, e4feas, args.out),
         lambda: fig_e4_memt_resume(res, args.out),
@@ -1358,7 +1463,7 @@ def main():
             failures += 1
             traceback.print_exc()
             plt.close("all")
-    md = build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4feas, bt)
+    md = build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4feas, bt, cs)
     os.makedirs(os.path.dirname(os.path.abspath(args.summary)), exist_ok=True)
     with open(args.summary, "w") as f:
         f.write(md)
