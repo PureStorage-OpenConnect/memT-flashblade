@@ -7,9 +7,6 @@ measures compute and bytes. This repository measures the same things on named ha
 what the paper leaves out: what it costs to put each kind of session state on shared storage and
 bring it back.
 
-Everything here was produced in one day (2026-11-09) by a Claude Code session orchestrating the
-experiments; the person running it reviewed the plan, the results, and this text.
-
 - Blog post: `docs/blog.md`
 - Plain-language explainer with architecture diagrams: `docs/explainer.html`
 - Experiment plan and scope: `docs/PLAN.md`
