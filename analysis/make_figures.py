@@ -317,13 +317,14 @@ def fig_e1_latency(ok, out):
     for s, c, lab in (("fullctx", C_KV, "full context"), ("nano", C_MEM, "MemT-Nano"), ("lora", C_LORA, "Temp-LoRA")):
         xs, ys = zip(*sorted(P_E2E[s].items()))
         ax.plot(xs, ys, label=f"{lab}, {PAPER}", **paper_kw(c))
-        end_label(ax, xs[-1], ys[-1], f"{lab} (paper) {ys[-1]:.1f} s")
+        # paper full context sits just above our Nano point at 256K: lift it, push ours below
+        end_label(ax, xs[-1], ys[-1], f"{lab} (paper) {ys[-1]:.1f} s", dy=8 if s == "fullctx" else 0)
         ymax = max(ymax, max(ys))
-    for s in ("fullctx", "nano"):
+    for s, nm in (("fullctx", "full context"), ("nano", "Nano")):
         d = a[a.system == s].sort_values("N")
         if len(d):
             r = d.iloc[-1]
-            end_label(ax, r["N"], r["mean"], f"{r['mean']:.1f} s", dy=-9 if s == "fullctx" else 9)
+            end_label(ax, r["N"], r["mean"], f"{nm} (ours) {r['mean']:.1f} s", dy=0 if s == "fullctx" else -9)
     n_axis(ax)
     ax.set_xlim(NS[0] / 1.4, NS[-1] * 4)
     sec_axis(ax, 5, ymax * 1.6)
@@ -352,13 +353,14 @@ def fig_e1_ttft(ok, out):
     xs, ys = zip(*sorted(P_TTFT["fullctx"].items()))
     ax.plot(xs, ys, label=f"full context, {PAPER}", **paper_kw(C_KV))
     for x, y in zip(xs, ys):
-        end_label(ax, x, y, f"{y * 1e3:.0f} ms (paper)", dx=8, dy=-8)
+        end_label(ax, x, y, f"full context (paper) {y * 1e3:.0f} ms", dx=8, dy=-8 if x < NS[-1] else 4)
     for s, c, lab in (("fullctx", C_KV, "full context (ours)"), ("nano", C_MEM, "MemT-Nano, fast writer (ours)")):
         d = a[a.system == s]
         if len(d):
             plot_band_series(ax, d, c, lab)
             r = d.sort_values("N").iloc[-1]
-            end_label(ax, r["N"], r["mean"], f"{r['mean'] * 1e3:.0f} ms", dy=10 if s == "fullctx" else -10)
+            end_label(ax, r["N"], r["mean"], ("full context" if s == "fullctx" else "Nano") +
+                      f" (ours) {r['mean'] * 1e3:.0f} ms", dy=0 if s == "fullctx" else -11)
     n_axis(ax)
     ax.set_xlim(NS[0] / 1.4, NS[-1] * 3)
     sec_axis(ax, 0.08, max(2.0, a["max"].max() * 1.5))
@@ -375,15 +377,17 @@ def fig_e1_ttft(ok, out):
 
 def mark_crossover(ax, d):
     d = d.sort_values("N").reset_index(drop=True)
-    for i in range(1, len(d)):
+    # last point below parity, followed only by points at/above parity that eventually clear it by >=5%
+    below = [i for i in range(len(d)) if d.loc[i, "mean"] < 1]
+    cands = [below[-1] + 1] if below and below[-1] + 1 < len(d) else []
+    for i in cands:
         r0, r1 = d.loc[i - 1, "mean"], d.loc[i, "mean"]
-        # only a sustained crossing that clears run-to-run noise (>=5% above parity, stays above)
-        if r0 < 1 <= r1 and r1 >= 1.05 and (d.loc[i:, "mean"] >= 1).all():
+        if d.loc[i:, "mean"].max() >= 1.05:
             x0, x1 = math.log2(d.loc[i - 1, "N"]), math.log2(d.loc[i, "N"])
             xc = 2 ** (x0 + (1 - r0) * (x1 - x0) / (r1 - r0))
             ax.axvline(xc, color=TXT2, linestyle=":", linewidth=1)
             ax.annotate(f"crossover ~{xc / 1024:.0f}K" if xc >= 1024 else f"crossover ~{xc:.0f}",
-                        (xc, 1), xytext=(4, 14), textcoords="offset points", fontsize=9, color=TXT)
+                        (xc, 1), xytext=(5, -16), textcoords="offset points", fontsize=9, color=TXT)
             return xc
     return None
 
@@ -1103,7 +1107,7 @@ def fig_e4_memt_resume(res, out):
          "O_DIRECT read into a pinned host pool, host-to-device copy, then the 512-token query prefill (first "
          "token). Median over 'odirect*' samples ("
          + ", ".join(f"{s}@{fmt_tokens(n)}:{c}" for (s, n), c in cnt.items()) +
-         f"); pagecache_warm samples excluded. Source e4_memt_resume.jsonl (live), fields {[c for _, c in stages]}.")
+         f"); pagecache_warm samples excluded. Source e4_memt_resume.jsonl, fields {[c for _, c in stages]}.")
 
 
 # ------------------------------------------------------------------ summary
@@ -1329,7 +1333,7 @@ def build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4fea
     if not mr:
         L.append("\ne4_memt_resume.jsonl: not yet available.\n")
     else:
-        L.append("\n### MemT snapshot vs HF KV resume from FlashBlade (e4_memt_resume.jsonl, live)\n")
+        L.append("\n### MemT snapshot vs HF KV resume from FlashBlade (e4_memt_resume.jsonl)\n")
         m = pd.DataFrame(mr)
         need = {"N", "system", "label"}
         if not need <= set(m.columns):

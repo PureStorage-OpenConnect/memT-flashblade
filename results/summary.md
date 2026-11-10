@@ -1,6 +1,6 @@
 # MemT-1.0 reproduction: results summary
 
-_Generated 2026-11-09 19:09 PST by `analysis/make_figures.py` from `results/*.jsonl`. Do not edit by hand; rerun the script._
+_Generated 2026-11-10 00:36 PST by `analysis/make_figures.py` from `results/*.jsonl`. Do not edit by hand; rerun the script._
 
 Paper reference values are from the MemT-1.0 paper (hardware unspecified). Our platform: DGX A100 (2x A100-80GB used, HF transformers BF16, batch 1), FlashBlade over NFS (RDMA and TCP).
 
@@ -12,17 +12,18 @@ E1 sweep files: e1_sweep_shard0.jsonl, e1_sweep_shard1.jsonl. Run ids: 20261109T
 |---|---:|---:|
 | 512 | 35 | 35 |
 | 2K | 35 | 35 |
-| 8K | 10 | 11 |
-
-
-No completed E1 records yet for N = 32K, 64K, 128K, 256K.
+| 8K | 35 | 35 |
+| 32K | 35 | 35 |
+| 64K | 35 | 35 |
+| 128K | 35 | 35 |
+| 256K | 35 | 35 |
 
 
 Validation/probe run ids: 20261109T163407-aad11a, 20261109T164733-97e5b8, 20261109T165403-b6ae03, 20261109T170754-d2ae33, 20261109T171202-d32fa6, 20261109T171824-e4d8b7.
 
 E3 run ids: e3-full-20261109-1748, e3-recheck-1859. Cells taken from e3_recheck_rdma_small.jsonl: rdma kv@512 conc_read_cold K=1; rdma kv@512 conc_read_cold K=32; rdma kv@512 conc_read_cold K=8; rdma kv@512 conc_write K=1; rdma kv@512 conc_write K=32; rdma kv@512 conc_write K=8; rdma memt conc_read_cold K=1; rdma memt conc_read_cold K=32; rdma memt conc_read_cold K=8; rdma memt conc_write K=1; rdma memt conc_write K=32; rdma memt conc_write K=8.
 
-E4 source: e4_feasibility_config{A,B}.jsonl (feasibility only).
+E4 source: e4_pkva_resume.jsonl.
 
 
 ## E1  Efficiency (HF, paper protocol)
@@ -33,8 +34,16 @@ E4 source: e4_feasibility_config{A,B}.jsonl (feasibility only).
 | 512 | nano | 35 | 12.97 | 12.65 | 13.55 | 370 | 357 | 380 | 0.42 | 2.1 | 10.43 |
 | 2K | fullctx | 35 | 11.93 | 11.75 | 12.09 | 360 | 353 | 366 | 0.45 | 5.0 | 11.42 |
 | 2K | nano | 35 | 13.23 | 13.00 | 13.71 | 367 | 357 | 381 | 0.74 | 2.0 | 10.48 |
-| 8K | fullctx | 10 | 12.61 | 12.42 | 12.74 | 375 | 369 | 379 | 1.07 | 9.4 | 11.37 |
-| 8K | nano | 11 | 14.64 | 14.43 | 15.03 | 367 | 359 | 376 | 2.10 | 2.0 | 10.43 |
+| 8K | fullctx | 35 | 12.62 | 12.38 | 13.03 | 377 | 369 | 388 | 1.08 | 9.4 | 11.38 |
+| 8K | nano | 35 | 14.61 | 14.32 | 15.03 | 367 | 359 | 377 | 2.09 | 2.0 | 10.45 |
+| 32K | fullctx | 35 | 16.62 | 16.32 | 16.89 | 452 | 443 | 462 | 5.02 | 28.6 | 11.38 |
+| 32K | nano | 35 | 19.96 | 19.45 | 20.34 | 367 | 358 | 373 | 7.43 | 2.1 | 10.45 |
+| 64K | fullctx | 35 | 25.66 | 25.26 | 26.32 | 549 | 542 | 555 | 13.97 | 54.5 | 11.40 |
+| 64K | nano | 35 | 27.06 | 26.48 | 28.04 | 366 | 358 | 376 | 14.56 | 2.1 | 10.47 |
+| 128K | fullctx | 35 | 58.11 | 57.75 | 59.31 | 767 | 751 | 781 | 46.22 | 105.0 | 11.42 |
+| 128K | nano | 35 | 41.25 | 40.34 | 43.08 | 366 | 359 | 377 | 28.75 | 2.1 | 10.46 |
+| 256K | fullctx | 35 | 187.16 | 185.89 | 195.42 | 1253 | 1219 | 1280 | 174.70 | 207.0 | 11.33 |
+| 256K | nano | 35 | 69.97 | 67.83 | 73.92 | 368 | 359 | 404 | 57.38 | 2.1 | 10.39 |
 
 
 Speedup (full context / Nano), per-history paired ratio, mean [min-max]:
@@ -43,11 +52,11 @@ Speedup (full context / Nano), per-history paired ratio, mean [min-max]:
 |---|---|---|---|---|---|
 | 512 | 35 | 0.93x [0.91-0.95] |  | 0.98x [0.95-1.01] |  |
 | 2K | 35 | 0.90x [0.87-0.92] |  | 0.98x [0.95-1.00] |  |
-| 8K | 10 | 0.86x [0.84-0.87] |  | 1.02x [1.00-1.04] |  |
-| 32K |  |  | 1.00x |  |  |
-| 64K |  |  | 1.20x |  |  |
-| 128K |  |  | 1.86x |  | 2.44x |
-| 256K |  |  | 3.99x |  | 4.19x |
+| 8K | 35 | 0.86x [0.84-0.88] |  | 1.03x [1.00-1.05] |  |
+| 32K | 35 | 0.83x [0.82-0.85] | 1.00x | 1.23x [1.19-1.26] |  |
+| 64K | 35 | 0.95x [0.92-0.96] | 1.20x | 1.50x [1.46-1.53] |  |
+| 128K | 35 | 1.41x [1.35-1.45] | 1.86x | 2.09x [2.02-2.14] | 2.44x |
+| 256K | 35 | 2.68x [2.53-2.86] | 3.99x | 3.40x [3.12-3.51] | 4.19x |
 
 
 Paper absolutes: e2e full context 30.07 s (128K) / 94.47 s (256K), Nano 16.19 / 23.69 s, Temp-LoRA 700.82 / 1400.88 s; TTFT Nano 104-112 ms, full context ~257 / ~445 ms. HF's MoE expert loop puts a ~350 ms floor under our TTFT on A100.
@@ -83,13 +92,15 @@ Validation nano runs use 'messages' slice packing; the sweep uses 'dense'.
 |---|---|---|---|---|---|---|---|---|---:|---|
 | 512 | 40.00 MiB | 41.94 MiB | 71.94 MiB | 1.0x | 1.8x | 72.5 MiB | 1.8x | 20480 | 39 | sweep+validation |
 | 2K | 40.00 MiB | 71.94 MiB | 101.94 MiB | 1.8x | 2.5x | 102.5 MiB | 2.6x | 20480 | 39 | sweep+validation |
-| 8K | 40.00 MiB | 191.81 MiB | 221.81 MiB | 4.8x | 5.5x | 222.5 MiB | 5.6x | 20480 | 15 | sweep+validation |
-| 32K | 40.00 MiB | 667.46 MiB | 697.46 MiB | 16.7x | 17.4x | 702.5 MiB | 17.6x | 20480 | 2 | validation |
-| 256K | 40.00 MiB | 4.99 GiB | 5.02 GiB | 127.9x | 128.6x | 5.1 GiB | 129.6x | 20480 | 1 | validation |
+| 8K | 40.00 MiB | 191.91 MiB | 221.91 MiB | 4.8x | 5.5x | 222.5 MiB | 5.6x | 20480 | 40 | sweep+validation |
+| 32K | 40.00 MiB | 670.35 MiB | 700.35 MiB | 16.8x | 17.5x | 702.5 MiB | 17.6x | 20480 | 37 | sweep+validation |
+| 64K | 40.00 MiB | 1.28 GiB | 1.31 GiB | 32.7x | 33.5x | 1.3 GiB | 33.6x | 20480 | 35 | sweep |
+| 128K | 40.00 MiB | 2.51 GiB | 2.54 GiB | 64.3x | 65.1x | 2.6 GiB | 65.6x | 20480 | 35 | sweep |
+| 256K | 40.00 MiB | 4.99 GiB | 5.02 GiB | 127.8x | 128.5x | 5.1 GiB | 129.6x | 20480 | 36 | sweep+validation |
 
-- Linear fit, full context BF16 GDN: 20327 B/token + 32.4 MiB; at 128K 2.51 GiB (64.3x Nano).
+- Linear fit, full context BF16 GDN: 20312 B/token + 34.3 MiB; at 128K 2.51 GiB (64.3x Nano).
 
-- Linear fit, full context FP32 GDN: 20327 B/token + 62.4 MiB; at 128K 2.54 GiB (65.1x Nano).
+- Linear fit, full context FP32 GDN: 20312 B/token + 64.3 MiB; at 128K 2.54 GiB (65.1x Nano).
 
 - FP32-GDN column = measured serialized bytes + (FP32 - BF16) recurrent-state bytes. HF stores the GDN recurrent state in BF16; the paper counts FP32. Conv state stays BF16 in both (HF conv kernel width 4, 1.875 MiB; E3's synthetic kv objects use width 3).
 
@@ -180,44 +191,90 @@ sessions per TB = 1e12 / bytes; amortised ms/session = bytes / aggregate K=32 th
 On NFS the first buffered read after write+close revalidates and refetches through the page cache at ~0.55 GB/s, 10x slower than O_DIRECT; on local ext4 it is a page-cache hit. tcp kv@2K's 1st buffered read (3.78 GB/s) is an exception where the client kept its cache.
 
 
+### Small-object concurrency sweep (cold O_DIRECT, idle path)
+
+Source e3_conc_sweep_small.jsonl (run e3-conc-sweep-2301, 5 reps); supersedes the recheck's K=8/32 small-object cells for the RDMA-dip question. GB/s = aggregate (1e9 B/s).
+
+| object | target | K | GB/s median [min-max] | p50 ms | p95 ms | per-session GB/s |
+|---|---|---:|---|---:|---:|---:|
+| memt | rdma | 1 | 5.30 [4.86-5.88] | 7.9 | 8.5 | 5.30 |
+| memt | rdma | 4 | 11.35 [6.49-17.20] | 14.0 | 25.7 | 3.00 |
+| memt | rdma | 8 | 13.87 [12.08-15.00] | 22.2 | 27.1 | 1.89 |
+| memt | rdma | 16 | 13.29 [11.33-16.47] | 47.0 | 57.3 | 0.89 |
+| memt | rdma | 32 | 5.18 [5.00-14.42] | 92.4 | 263.4 | 0.45 |
+| memt | rdma | 64 | 10.08 [9.83-10.20] | 158.0 | 267.3 | 0.27 |
+| memt | tcp | 1 | 5.68 [5.01-6.08] | 7.4 | 8.3 | 5.68 |
+| memt | tcp | 4 | 11.51 [10.69-14.71] | 14.2 | 15.6 | 2.96 |
+| memt | tcp | 8 | 16.05 [13.54-17.05] | 20.0 | 23.2 | 2.10 |
+| memt | tcp | 16 | 16.08 [15.27-16.71] | 39.8 | 43.0 | 1.05 |
+| memt | tcp | 32 | 16.51 [14.77-16.86] | 78.0 | 88.7 | 0.54 |
+| memt | tcp | 64 | 16.68 [7.77-16.97] | 150.6 | 338.1 | 0.28 |
+| kv@512 | rdma | 1 | 5.24 [5.02-5.53] | 14.3 | 14.9 | 5.24 |
+| kv@512 | rdma | 4 | 16.74 [6.45-17.23] | 17.5 | 40.4 | 4.27 |
+| kv@512 | rdma | 8 | 15.81 [14.50-18.23] | 35.2 | 40.5 | 2.13 |
+| kv@512 | rdma | 16 | 14.26 [12.46-15.73] | 78.2 | 91.9 | 0.96 |
+| kv@512 | rdma | 32 | 8.82 [8.60-8.83] | 214.4 | 274.2 | 0.35 |
+| kv@512 | rdma | 64 | 16.34 [15.78-17.80] | 267.0 | 295.2 | 0.28 |
+| kv@512 | tcp | 1 | 5.87 [4.86-5.94] | 12.8 | 15.0 | 5.87 |
+| kv@512 | tcp | 4 | 14.28 [9.89-15.81] | 20.1 | 24.4 | 3.73 |
+| kv@512 | tcp | 8 | 16.61 [15.61-17.39] | 34.1 | 37.6 | 2.20 |
+| kv@512 | tcp | 16 | 17.07 [16.89-17.84] | 66.6 | 69.5 | 1.12 |
+| kv@512 | tcp | 32 | 17.28 [16.80-17.84] | 130.8 | 139.7 | 0.57 |
+| kv@512 | tcp | 64 | 17.12 [16.25-17.33] | 263.5 | 283.1 | 0.28 |
+
+
 ## E4  vLLM + pKVA production path
 
-**Feasibility data only** (1 history, 1 sample per condition; e4_pkva_resume.jsonl not yet available).
+Source e4_pkva_resume.jsonl (vLLM TP2 + pKVA config B, KV store on FlashBlade RDMA).
 
-TTFT, ms (median per cell):
+pKVA TTFT by N, median [min-max] n (restored: valid samples only); bytes written by the cold request, median per history (KiB/token = bytes_written / history_tokens):
 
-| config | n_hist | cold | hot | reset | restored |
-|---|---|---:|---:|---:|---:|
-| A | 8K | 906 | 62 | 76 | 1982 |
-| A | 32K | 3352 | 146 | 182 | 271 |
-| A | 128K | 16716 | 300 | 447 | 3889 |
-| B | 8K | 367 | 67 | 81 | 110 |
-| B | 32K | 1361 | 160 | 199 | 261 |
-| B | 128K | 8649 | 352 | 469 | 3096 |
+| N | cold TTFT ms | hot TTFT ms | restored TTFT ms | KiB/token | bytes/history | files/history |
+|---|---|---|---|---|---|---|
+| 2K | 162 [160-173] n=3 | 54 [52-55] n=6 | 84 [76-95] n=9 | 51.6 | 103.13 MiB | 4 |
+| 8K | 334 [324-338] n=3 | 65 [64-67] n=6 | 125 [112-130] n=9 | 28.4 | 226.88 MiB | 16 |
+| 32K | 1267 [1261-1269] n=3 | 113 [107-118] n=6 | 255 [240-285] n=9 | 24.0 | 763.13 MiB | 62 |
+| 64K | 3161 [3123-3186] n=3 | 190 [177-202] n=6 | 433 [414-488] n=9 | 24.0 | 1.49 GiB | 124 |
+| 128K | 8676 [8631-8800] n=3 | 332 [318-380] n=6 | 789 [743-984] n=9 | 23.9 | 2.98 GiB | 248 |
+| 256K | 26886 [26716-26895] n=3 | 636 [591-672] n=6 | 1539 [1454-1752] n=9 | 23.9 | 5.92 GiB | 492 |
 
+- e4_pkva_resume.jsonl run 20261109T191824-dba88c: plotted restored=54, hot=36, cold=18; excluded from plots: filler_cold=2, first_load_after_kva_start=1, filler_restore=3, end=1 (filler_* evict the kva host pool, first_load_after_kva_start is the first load after a kva_server restart, end holds store_final)
 
-Bytes written to the pKVA store by the cold request:
-
-| config | n | prompt_tokens | delta | files | KiB/token |
-|---|---|---:|---|---:|---:|
-| A | 8K | 8704 | 660.00 MiB | 16 | 77.6 |
-| A | 32K | 33280 | 2.50 GiB | 62 | 78.7 |
-| A | 128K | 131584 | 9.99 GiB | 248 | 79.6 |
-| B | 8K | 8704 | 226.88 MiB | 16 | 26.7 |
-| B | 32K | 33280 | 763.13 MiB | 62 | 23.5 |
-| B | 128K | 131584 | 2.98 GiB | 248 | 23.8 |
+- pKVA store at end of run: 40.30 GiB in 3330 files (includes fillers)
 
 
-e4_memt_resume.jsonl: not yet available.
+### MemT snapshot vs HF KV resume from FlashBlade (e4_memt_resume.jsonl)
+
+Medians over O_DIRECT ('odirect*') samples; TTFT = restore (read + h2d + pool) + query prefill; total = TTFT + 128-token decode.
+
+| N | system | n | histories | read ms | h2d ms | prefill ms | TTFT ms | total s | file_bytes |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 2K | nano | 9 | 3 | 8.3 | 2.4 | 373 | 382 | 12.49 | 40.00 MiB |
+| 2K | fullctx | 6 | 3 | 13.0 | 9.1 | 351 | 377 | 11.51 | 71.94 MiB |
+| 8K | nano | 9 | 3 | 7.7 | 2.3 | 363 | 372 | 12.49 | 40.00 MiB |
+| 8K | fullctx | 6 | 3 | 27.2 | 13.7 | 364 | 413 | 11.55 | 191.94 MiB |
+| 32K | nano | 9 | 3 | 8.0 | 2.3 | 362 | 372 | 12.55 | 40.00 MiB |
+| 32K | fullctx | 6 | 3 | 117.0 | 35.0 | 423 | 583 | 11.76 | 667.60 MiB |
+| 64K | nano | 9 | 3 | 8.0 | 2.3 | 364 | 380 | 12.59 | 40.00 MiB |
+| 64K | fullctx | 6 | 3 | 209.2 | 62.9 | 515 | 791 | 12.04 | 1.28 GiB |
+| 128K | nano | 9 | 3 | 8.1 | 2.3 | 366 | 378 | 12.60 | 40.00 MiB |
+| 128K | fullctx | 6 | 3 | 427.0 | 117.0 | 709 | 1268 | 12.44 | 2.52 GiB |
+| 256K | nano | 9 | 3 | 8.0 | 2.4 | 361 | 376 | 12.56 | 40.00 MiB |
+| 256K | fullctx | 6 | 3 | 890.7 | 232.1 | 1114 | 2246 | 13.47 | 4.98 GiB |
+
+
+pagecache_warm samples (excluded above): median read 7.7 ms (n=36).
+
+Largest N with odirect samples so far: {'fullctx': 262144, 'nano': 262144}. Run ids: 20261109T222029-ef3c1b.
 
 
 ## Figures and captions
 
-- **fig_e1_latency**: End-to-end latency (history preparation + 512-token query + forced 128-token decode), mean across histories with min-max band; HF transformers BF16 on 2x A100-80GB, batch 1. Hollow dashed markers are the paper's values (paper (hardware unspecified)). Histories per N (min over systems): 512:35, 2K:35, 8K:10. Decode runs at ~10-11 tok/s in HF here, so ~11-12 s of every point is the 128-token reply.
+- **fig_e1_latency**: End-to-end latency (history preparation + 512-token query + forced 128-token decode), mean across histories with min-max band; HF transformers BF16 on 2x A100-80GB, batch 1. Hollow dashed markers are the paper's values (paper (hardware unspecified)). Histories per N (min over systems): 512:35, 2K:35, 8K:35, 32K:35, 64K:35, 128K:35, 256K:35. Decode runs at ~10-11 tok/s in HF here, so ~11-12 s of every point is the 128-token reply.
 
 - **fig_e1_ttft**: Query TTFT for a 512-token query (restore of the prepared state from pinned host memory + query prefill + first token), mean across histories with min-max band. Note: HF transformers' MoE expert loop sets a ~350 ms TTFT floor on A100 for any 512-token prefill, so our absolute TTFTs sit ~3x above the paper's 104-112 ms Nano figure; compare the shape (flat vs rising) and the ratio, not the level. Paper values are hollow/dashed (paper (hardware unspecified)).
 
-- **fig_e1_speedup**: Ratio full-context / MemT-Nano (fast writer) for end-to-end latency and for query TTFT, computed per history and averaged (band = min-max across histories). Horizontal line = parity. End-to-end latency: ours crossover not reached (within +-5% of parity or below) in measured range; Query TTFT: ours crossover not reached (within +-5% of parity or below) in measured range. Paper ratios hollow/dashed (paper (hardware unspecified)); paper puts e2e parity at ~32K.
+- **fig_e1_speedup**: Ratio full-context / MemT-Nano (fast writer) for end-to-end latency and for query TTFT, computed per history and averaged (band = min-max across histories). Horizontal line = parity. End-to-end latency: ours crossover ~70,851 tokens; Query TTFT: ours crossover ~3,580 tokens. Paper ratios hollow/dashed (paper (hardware unspecified)); paper puts e2e parity at ~32K.
 
 - **fig_e1_writer_cost**: History-preparation time: MemT-Nano commit_memory with the shipped reference writer vs our fast writer, and full-context KV prefill. Line = median, dots = individual histories. Source: e1_validate.jsonl + e1_probe256k.jsonl, which hold only 1-5 histories per point (fullctx@512:4, fullctx@2K:4, fullctx@8K:5, fullctx@32K:2, fullctx@256K:1, nano-fast@512:2, nano-fast@2K:2, nano-fast@8K:2, nano-fast@32K:2, nano-fast@256K:1, nano-reference@512:4, nano-reference@2K:4, nano-reference@8K:5, nano-reference@32K:2, nano-reference@256K:1); nano slices packed by message ('messages' slice mode), the main sweep uses 'dense' slicing. One fullctx point (history 0 @2K, 9.1 s) is a first-run warm-up outlier; the median ignores it.
 
@@ -231,16 +288,18 @@ e4_memt_resume.jsonl: not yet available.
 
 - **fig_e3_loader_overhead**: FlashBlade rdma, one session. Both paths read with O_DIRECT; the library path then copies into a Python bytes object and parses with safetensors.numpy.load, which caps it near 0.67 GB/s on every target (CPU-bound copy, not storage). Label = slowdown factor.
 
-- **fig_e4_pkva_ttft**: Source e4_feasibility_config{A,B}.jsonl. Qwen3.6-35B-A3B on vLLM TP2 with PureKVConnector writing KV to FlashBlade. cold = no cache; hot = GPU prefix cache; reset = POST /reset_prefix_cache with kva_server alive (may hit kva's host pool); restored = after restarting vLLM/kva_server, so KV comes from FlashBlade. Feasibility data: config B's 'restored' rows re-read the h1 objects written under config A; the config A 8K 'restored' point (1.98 s) is the first request after restart.
+- **fig_e3_conc_sweep**: Source e3_conc_sweep_small.jsonl (run e3-conc-sweep-2301), 5 reps per point, run with the storage path otherwise idle. K processes each read a distinct file with O_DIRECT behind a barrier; top = aggregate GB/s (median, band = min-max over reps), bottom = p95 per-session latency. This sweep supersedes the K=8/32 small-object cells of e3_recheck_rdma_small.jsonl for the question of whether the RDMA dip is real: tcp stays flat at ~16-17 GB/s from K=8 up, while rdma drops at K=32 (memt median 5.2 GB/s, but max 14.4 GB/s, so the dip is intermittent across reps). The fig_e3_concurrency figures keep their original sources.
 
-- **fig_e4_bytes_per_token**: Growth of the pKVA store directory during the cold request at each history length, divided by prompt tokens (history + 512-token query + template). The 20 KiB/token line is the attention-only KV of Qwen3.6-35B-A3B; anything above it is GDN/mamba state checkpoints. Right panel: same data per session with the 40 MiB MemT-Nano snapshot for reference.
+- **fig_e4_pkva_ttft**: Source e4_pkva_resume.jsonl. Qwen3.6-35B-A3B on vLLM 0.32 TP2 + pKVA 1.3.0, KV store on FlashBlade NFSv3/RDMA, 512-token query. Median per N with min-max band over 2K:3, 8K:3, 32K:3, 64K:3, 128K:3, 256K:3 histories. cold = first request (prefill computed, KV written); hot = repeat with GPU prefix-cache hit; restored = after a kva_server restart plus a filler history to evict host/GPU caches, so the KV is read back from FlashBlade (only samples with valid == True, i.e. cached tokens matched the expected hit).
 
-- **fig_e4_memt_resume**: NOT YET AVAILABLE: results/e4_memt_resume.jsonl not present yet (E4 agent running)
+- **fig_e4_bytes_per_token**: bytes_written / files_written of the cold request in e4_pkva_resume.jsonl, divided by history tokens, median over histories. The 20 KiB/token line is the attention-only KV of Qwen3.6-35B-A3B; anything above it is GDN/mamba state checkpoints. Right panel: same data per session with the 40 MiB MemT-Nano snapshot for reference.
+
+- **fig_e4_memt_resume**: Resume of a saved session from FlashBlade (NFSv3/RDMA) on HF transformers, 2x A100: O_DIRECT read into a pinned host pool, host-to-device copy, then the 512-token query prefill (first token). Median over 'odirect*' samples (fullctx@2K:6, fullctx@8K:6, fullctx@32K:6, fullctx@64K:6, fullctx@128K:6, fullctx@256K:6, nano@2K:9, nano@8K:9, nano@32K:9, nano@64K:9, nano@128K:9, nano@256K:9); pagecache_warm samples excluded. Source e4_memt_resume.jsonl, fields ['read_s', 'h2d_s', 'prefill_s'].
 
 
 ## Data-quality notes (auto-detected + known)
 
-- E1: history_tokens differs from nominal N in 9/161 records (max 0.98%; sampler tolerance is +-1%, so 'N' is a bucket, not an exact count)
+- E1: history_tokens differs from nominal N in 294/490 records (max 1.00%; sampler tolerance is +-1%, so 'N' is a bucket, not an exact count)
 
 - E1 sweep nano slice_mode = ['dense']; the validation/probe files used 'messages' slicing, so fast-writer prep there is not directly comparable with the sweep
 
@@ -263,7 +322,3 @@ e4_memt_resume.jsonl: not yet available.
 - E3: 'st_load_cold' is O_DIRECT read + bytes() copy + safetensors.numpy.load, i.e. the loader's CPU cost on top of a cold read; it is ~0.67 GB/s on every target, so it measures the CPU path, not storage
 
 - E3: kv@N objects are synthetic (random BF16-entropy data) with FP32 GDN recurrent state and a width-3 conv state, ~0.5 MB smaller than the HF-measured FP32-GDN accounting
-
-- E4 feasibility: config B file's 'restored' rows (tag h1) re-read objects written under config A; config A's 8K 'restored' TTFT (1.98 s) exceeds its cold TTFT (0.91 s): first request after restart
-
-- E4 feasibility: config A cold TTFT is ~2x config B's at 128K (16.7 vs 8.6 s): per-chunk checkpointing is on the prefill critical path

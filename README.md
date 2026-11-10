@@ -25,8 +25,8 @@ conversation history as context.
 
 | Claim | Paper (hardware unspecified) | This repo (2x A100-80GB, HF transformers, BF16, batch 1) |
 |---|---|---|
-| C1 end-to-end latency (history prep + 128-token reply), Nano vs full context | parity at 32K; 1.20x at 64K; 1.86x at 128K; 3.99x at 256K | {{E1_SPEEDUP_ROW}} |
-| C2 query TTFT | Nano flat at 104-112 ms; full context 257 ms at 128K, 445 ms at 256K | Nano flat at {{E1_NANO_TTFT}} ms; full context {{E1_FC_TTFT_128K}} ms at 128K, {{E1_FC_TTFT_256K}} ms at 256K |
+| C1 end-to-end latency (history prep + 128-token reply), Nano vs full context | parity at 32K; 1.20x at 64K; 1.86x at 128K; 3.99x at 256K | 0.83x at 32K; 0.95x at 64K; 1.41x at 128K; 2.68x at 256K (35 histories, paired means) |
+| C2 query TTFT | Nano flat at 104-112 ms; full context 257 ms at 128K, 445 ms at 256K | Nano flat at 366 to 370 ms; full context 767 ms at 128K, 1,253 ms at 256K |
 | C3 state per session | Nano 40 MiB constant; full context ~20 KiB/token (5.06 GiB at 256K) | 40.00 MiB constant; 20,480 B/token attention KV + 32 MiB GDN state (4.99 GiB at 256K) |
 
 Beyond the paper, with the state on FlashBlade:
@@ -35,7 +35,7 @@ Beyond the paper, with the state on FlashBlade:
 |---|---|
 | Cold restore of one 40 MiB MemT snapshot (O_DIRECT, NFS over RDMA) | 8 ms; one 256K full-context KV state (5.2 GB) 849 ms |
 | Aggregate cold-read throughput, 32 concurrent sessions | ~23 GB/s RDMA, ~18 GB/s TCP for large states |
-| MemT resume end to end (read + copy to GPU + query prefill to first token) | {{E4_MEMT_TTFT}} ms, of which storage is {{E4_MEMT_READ}} ms |
+| MemT resume end to end (read + copy to GPU + query prefill to first token) | 375 ms, of which storage is 8 ms |
 | vLLM + pKVA full-context resume from FlashBlade at 256K | 1.54 s TTFT vs 26.9 s cold recompute, 23.9 KiB/token stored |
 | Loader overhead | a generic safetensors load is ~8x slower than a raw O_DIRECT read for the 40 MiB object |
 
@@ -111,7 +111,7 @@ CUDA_VISIBLE_DEVICES=0,1 .venv/bin/python bench/e1_efficiency_sweep.py \
 
 One record per (history, length, system) with prep time, per-query TTFT and end-to-end time,
 decode rate, and the serialized size of the per-session state (E2). `--writer reference` uses the
-checkpoint's shipped per-token loop. The run takes about 7.5 hours per 18 histories on two A100s;
+checkpoint's shipped per-token loop. The run took about 7 hours per 18 histories on two A100s;
 we ran two shards on GPUs 0-1 and 2-3. Validation on two histories first:
 `--histories 0,1 --lengths 512,32768,262144 --reps 2`.
 
