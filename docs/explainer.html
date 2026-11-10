@@ -184,6 +184,11 @@ svg .dot { stroke: var(--surface); stroke-width: 2; }
 .chip.run::before { background: var(--warn); }
 .chip.done::before { background: var(--ok); }
 .chip.ready::before { background: var(--kv); }
+.legend i.mk { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.legend i.mk-o { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; background: transparent; }
+svg .dot-paper { fill: var(--bg); stroke-width: 2; }
+.band svg .dot-paper { fill: var(--surface); }
+.found .card h3 .n { font-family: var(--font-mono); color: var(--accent-ink); margin-right: 6px; }
 
 /* glossary */
 dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px 28px; margin: 0; }
@@ -197,6 +202,7 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
 <nav class="nav" aria-label="Sections">
   <div class="wrap">
     <span class="brand"><span class="dot" aria-hidden="true"></span>MemT-1.0 Explained</span>
+    <a href="#found">What we found</a>
     <a href="#plain">Plain words</a>
     <a href="#architecture">Architecture</a>
     <a href="#lifecycle">A session over time</a>
@@ -208,16 +214,29 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
 </nav>
 
 <header class="hero wrap">
-  <div class="eyebrow">Field guide · MemTensor, arXiv 2610.26825 · Oct 2026</div>
+  <div class="eyebrow">Field guide · MemTensor, arXiv 2610.26825 · Oct 2026 · our results measured 2026-11-10</div>
   <h1>A language model that keeps notes instead of re-reading the transcript</h1>
-  <p class="lede">MemT-1.0 gives a frozen Qwen or DeepSeek model a fixed-size memory it writes into after every turn and reads from on every token. The memory for a whole session is 40 MiB, no matter how long the conversation gets. This page explains what that means, how the model is built, and what we are testing on a DGX A100 with FlashBlade.</p>
+  <p class="lede">MemT-1.0 gives a frozen Qwen or DeepSeek model a fixed-size memory it writes into after every turn and reads from on every token. The memory for a whole session is 40 MiB, no matter how long the conversation gets. This page explains what that means, how the model is built, and what we measured when we reproduced the paper's efficiency and storage claims on a DGX A100 with FlashBlade.</p>
   <div class="tiles">
-    <div class="tile mem"><span class="num">40<small>MiB</small></span><span class="lbl">Persistent state per session, constant from the first turn to the millionth token</span><span class="src">paper Table 6 · confirmed on our GPUs</span></div>
-    <div class="tile"><span class="num">66<small>×</small></span><span class="lbl">Smaller than the full-context KV cache at a 128K-token history</span><span class="src">paper Sec 6.6 · bytes/token confirmed here</span></div>
-    <div class="tile"><span class="num">~110<small>ms</small></span><span class="lbl">Time to first token, flat from 512 to 256K tokens of history; full context rose to 445 ms</span><span class="src">paper Fig 8 · ours pending</span></div>
+    <div class="tile mem"><span class="num">40<small>MiB</small></span><span class="lbl">Persistent state per session, constant from the first turn to the millionth token</span><span class="src">paper Table 6 · measured: 41,944,024 B at every length</span></div>
+    <div class="tile"><span class="num">64<small>×</small></span><span class="lbl">Smaller than the full-context state at a 128K-token history (65× counting GDN state in FP32 as the paper does)</span><span class="src">measured · paper Sec 6.6: 66×</span></div>
+    <div class="tile"><span class="num">2.68<small>×</small></span><span class="lbl">Faster end to end than full context at 256K tokens; Nano's time to first token stays flat at 366 to 370 ms</span><span class="src">measured · paper Fig 3: 3.99×</span></div>
+    <div class="tile mem"><span class="num">8.2<small>ms</small></span><span class="lbl">Cold restore of one 40 MiB session from FlashBlade over RDMA; a 256K-token KV state takes 849 ms</span><span class="src">measured · not in the paper</span></div>
   </div>
-  <p class="small muted">Headline figures are the authors' reported numbers. Where we have already measured something on our hardware, the tile says so. Full results from our reproduction land in the repo as they finish.</p>
+  <p class="small muted">Measured on a DGX A100 (2 × A100-80GB, Hugging Face transformers BF16, batch 1) and FlashBlade over NFS; numbers as of 2026-11-10. Paper values are the authors' own, on hardware they do not name. Code, raw results and the write-up are in the <a href="https://github.com/PureStorage-OpenConnect/memT-flashblade">reproduction repo</a>.</p>
 </header>
+
+<section id="found" class="wrap found">
+  <div class="sec-head">
+    <div class="eyebrow">What we found · measured 2026-11-10</div>
+    <h2>Three results from the reproduction</h2>
+  </div>
+  <div class="cards">
+    <div class="card"><h3><span class="n">1</span>Storage reproduces exactly</h3><p>The Nano memory file is 41,944,024 bytes, 40.00 MiB, at every history length from 512 to 256K tokens. Full context costs 20,480 bytes per token plus 32 MiB of linear-attention state, 4.99 GiB at 256K against the paper's 5.06 GiB. That is 64× more than Nano at 128K, or 65× if the recurrent state is counted in FP32 the way the paper counts it; the paper says 66×.</p></div>
+    <div class="card"><h3><span class="n">2</span>Speed reproduces in direction, at about two thirds of the size</h3><p>Nano beats full context by 1.41× at 128K and 2.68× at 256K, where the paper reports 1.86× and 3.99×. The crossover sits between 64K and 128K (0.95× at 64K) rather than at 32K. Nano's time to first token is flat, as claimed. This needs a fused memory writer: with the per-token writer the checkpoint ships with, Nano is slower than full context at every length.</p></div>
+    <div class="card"><h3><span class="n">3</span>Restoring from storage, which the paper did not measure</h3><p>A 40 MiB session restores cold from FlashBlade in 8.2 ms, and a resumed Nano session answers in 375 ms at any history length, of which 8 ms is the read. A 256K-token full-context state takes 849 ms to read and 2.25 s to resume in Hugging Face; vLLM with pKVA brings it back in 1.54 s against 26.9 s to recompute. A terabyte holds about 23,800 Nano sessions or 184 at 256K.</p></div>
+  </div>
+</section>
 
 <section id="plain" class="wrap">
   <div class="sec-head">
@@ -233,8 +252,8 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     <div class="cards">
       <div class="card"><h3>What it is not</h3><p><strong>Not retrieval (RAG).</strong> Nothing is searched or pasted back into the prompt. <strong>Not fine-tuning.</strong> The 36B backbone weights never change at inference; only the 40 MiB state does. <strong>Not a vector database.</strong> The state is a learned associative memory, not a list of records.</p></div>
       <div class="card"><h3>What the paper reports</h3><p>Across 11 memory benchmarks, MemT-1.0-Nano scores 47.0 and Flash 50.6, ahead of other parametric-memory methods (best 38.1) but behind text-based memory systems (up to 68.6). At 128K tokens of history, Nano answers 1.86× faster end to end than full context and keeps 66× less state. General ability is largely preserved.</p></div>
-      <div class="card"><h3>What we saw first-hand</h3><p>On our A100s the released model recalled the four facts in the authors' demo and 13 of 18 attributes from a six-person document. On a dense list of 240 unrelated facts it failed exact name lookups that full context got right. The 40 MiB and the 20 KiB-per-token figures matched exactly.</p></div>
-      <div class="callout"><strong>Why a storage team cares.</strong> The object you persist per user changes from a KV cache that grows without bound to a 40 MiB file that does not. Every session resume becomes a 40 MiB read. That is a different shape of workload for the storage tier, and it is what the FlashBlade experiments below measure.</div>
+      <div class="card"><h3>What we saw first-hand</h3><p>On our A100s the released model recalled the four facts in the authors' demo and 13 of 18 attributes from a six-person document. On a dense list of 240 unrelated facts it failed exact name lookups that full context got right. The 40 MiB and the 20 KiB-per-token figures matched exactly, and the full sweep later confirmed them at all seven history lengths.</p></div>
+      <div class="callout"><strong>Why a storage team cares.</strong> The object you persist per user changes from a KV cache that grows without bound to a 40 MiB file that does not. Every session resume becomes a 40 MiB read. That is a different shape of workload for the storage tier, and it is what the FlashBlade experiments below measured.</div>
     </div>
   </div>
 </section>
@@ -249,7 +268,7 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
 
     <figure>
       <div class="scroll">
-      <svg class="wide" viewBox="0 0 920 400" role="img" aria-label="The 40-layer backbone with memory blocks attached to the 10 full-attention layers, and one decoder layer expanded to show memory attention running in parallel with the original attention.">
+      <svg class="wide" viewBox="0 0 920 400" role="img" aria-label="The 40-layer backbone with memory blocks attached to the 10 full-attention layers, and one decoder layer expanded to show memory attention working in parallel with the original attention.">
         <defs>
           <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
           <marker id="arr-mem" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--mem)"/></marker>
@@ -468,7 +487,7 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
   <div class="cards">
     <div class="card"><h3>Pausing and resuming</h3><p>Full context: save or recompute the cache, 20 KiB per token of history. MemT: save one 40 MiB file. The authors' server exports it as a safetensors snapshot; the HF code does the same, and the two formats are interchangeable.</p></div>
     <div class="card"><h3>Writing is not free</h3><p>A commit runs the turn's tokens through the whole backbone plus the update rule. Nano processes history in 2,048-token slices. The paper's speed advantage comes from doing this once per slice rather than re-attending over all past tokens on every new query.</p></div>
-    <div class="card"><h3>Many sessions, one model</h3><p>Weights are shared. Each live session owns a 40 MiB slot on the GPU; the authors' server holds six per rank. Idle sessions can be evicted to storage and brought back by loading their file, which is the pattern we test on FlashBlade.</p></div>
+    <div class="card"><h3>Many sessions, one model</h3><p>Weights are shared. Each live session owns a 40 MiB slot on the GPU; the authors' server holds six per rank. Idle sessions can be evicted to storage and brought back by loading their file, which is the pattern we tested on FlashBlade.</p></div>
   </div>
 </section>
 
@@ -477,7 +496,7 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     <div class="sec-head">
       <div class="eyebrow">Storage</div>
       <h2>Persistent state per session versus history length</h2>
-      <p class="fg2 prose">The paper's accounting, drawn to scale. The full-context line is 20 KiB per token plus a constant 62.5 MiB of recurrent state for the 30 linear-attention layers. We measured 20,480 bytes per token and a 40.0 MiB memory state on our GPUs, which matches.</p>
+      <p class="fg2 prose">The paper's accounting, drawn to scale, with our measured file sizes on top. The paper's full-context line is 20 KiB per token plus a constant 62.5 MiB of recurrent state for the 30 linear-attention layers. Our safetensors files carry exactly 20,480 bytes per token; the constant is 32 MiB because Hugging Face keeps that recurrent state in BF16 where the paper counts FP32. The Nano file is 40.00 MiB at all seven lengths.</p>
     </div>
     <div class="chart" id="storage-chart">
       <div class="chart-head">
@@ -486,12 +505,14 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
           <span><i style="background:var(--mem)"></i>MemT-1.0-Nano memory state</span>
           <span><i style="background:var(--lora)"></i>Temp-LoRA adapter</span>
           <span class="muted"><i class="dash" style="color:var(--kv)"></i>beyond the 256K context window</span>
+          <span style="color:var(--fg-2)"><i class="mk"></i>ours, measured</span>
+          <span style="color:var(--fg-2)"><i class="mk-o"></i>paper (hardware unspecified)</span>
         </div>
         <button class="btn" id="storage-table-btn" aria-pressed="false" aria-controls="storage-table">Show table</button>
       </div>
       <div class="plot" id="storage-plot"><div class="tip" id="storage-tip"></div></div>
       <div class="tscroll" id="storage-table" hidden></div>
-      <p class="small muted">Both axes are logarithmic. The 66× figure is the ratio at 128K tokens: 2.56 GiB against 40 MiB. Source: paper Sec 6.6 and Fig 3; per-token bytes verified in our HF smoke test.</p>
+      <p class="small muted">Both axes are logarithmic. Filled markers are our measured safetensors bytes (35 BEAM histories per length, 2026-11-10); hollow markers and the line are the paper's accounting. At 128K the paper has 2.56 GiB against 40 MiB, 66×; we measured 2.51 GiB, 64×. Temp-LoRA is the paper's figure only. Source: paper Sec 6.6 and Fig 3; results/summary.md in the repo.</p>
     </div>
   </div>
 </section>
@@ -499,8 +520,8 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
 <section id="speed" class="wrap">
   <div class="sec-head">
     <div class="eyebrow">Speed</div>
-    <h2>What the authors measured, and what we are checking</h2>
-    <p class="fg2 prose">End-to-end latency is the time to ingest the history and then generate a 128-token reply. The authors ran all three systems with Hugging Face inference on two GPUs they do not name, so absolute numbers will not transfer. The ratios and the shape of the curves are what we test.</p>
+    <h2>What the authors measured, and what we measured</h2>
+    <p class="fg2 prose">End-to-end latency is the time to ingest the history and then generate a 128-token reply. The authors ran all three systems with Hugging Face inference on two GPUs they do not name, so absolute numbers do not transfer. We ran the same protocol on 2 × A100-80GB over 35 BEAM histories, 5 repetitions each, and compare ratios and the shape of the curves.</p>
   </div>
   <div class="two">
     <div class="chart" id="speed-chart">
@@ -509,15 +530,17 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
           <span><i style="background:var(--kv)"></i>Full context</span>
           <span><i style="background:var(--mem)"></i>MemT-1.0-Nano</span>
           <span><i style="background:var(--lora)"></i>Temp-LoRA</span>
+          <span style="color:var(--fg-2)"><i class="mk"></i>ours, 2 × A100-80GB</span>
+          <span style="color:var(--fg-2)"><i class="mk-o"></i>paper (hardware unspecified)</span>
         </div>
       </div>
       <div class="plot" id="speed-plot"><div class="tip" id="speed-tip"></div></div>
-      <p class="small muted">End-to-end latency in seconds, log scale, as reported in the paper's Figure 3. Hover a point for the value.</p>
+      <p class="small muted">End-to-end latency in seconds, log scale. Hollow: the paper's Figure 3. Filled: our means over 35 histories (Temp-LoRA not run). Full context ÷ Nano is 1.86× and 3.99× in the paper, 1.41× and 2.68× here. Our absolutes run higher because Hugging Face decodes at 10 to 11 tokens/s on A100, so 11 to 12 s of every point is the reply, and its MoE expert dispatch puts a ~350 ms floor under every query prefill. Hover a point for the value.</p>
     </div>
     <div class="cards">
-      <div class="card"><h3>Time to first token</h3><p>After the history is prepared, the authors report Nano answering in a steady 104 to 112 ms regardless of history length, while full context climbs to about 257 ms at 128K and 445 ms at 256K. A fixed-size readout costs the same at every length.</p></div>
-      <div class="card"><h3>Where the crossover sits</h3><p>Nano is slower than full context at short histories, roughly equal at 32K, then 1.20× faster at 64K, 1.86× at 128K and 3.99× at 256K. Below 32K the cost of running the write rule outweighs re-reading a short transcript.</p></div>
-      <div class="callout kv"><strong>A finding from our setup.</strong> The released Hugging Face model code writes memory with a per-token Python loop: 2.4 s per 2,048-token slice on an A100, against 0.38 s to prefill the same slice. The authors' serving stack uses fused kernels for this step. We are porting the equivalent kernel path so our timings measure the architecture rather than a reference implementation.</div>
+      <div class="card"><h3>Time to first token</h3><p>The authors report Nano answering in a steady 104 to 112 ms at every history length, while full context climbs to about 257 ms at 128K and 445 ms at 256K. We see the same shape on a higher floor: Nano flat at 366 to 370 ms, full context 362 ms at 512 tokens, 767 ms at 128K and 1,253 ms at 256K. That is 2.09× and 3.40× against the paper's 2.44× and 4.19×. The ~350 ms floor is Hugging Face's MoE expert dispatch on A100, not the memory.</p></div>
+      <div class="card"><h3>Where the crossover sits</h3><p>Paper: slower at short histories, even at 32K, then 1.20× faster at 64K, 1.86× at 128K and 3.99× at 256K. Ours: 0.93× at 512, 0.83× at 32K, 0.95× at 64K, then 1.41× at 128K and 2.68× at 256K, so the crossover falls between 64K and 128K. At 256K full context spends 174.7 s preparing the history against Nano's 57.4 s.</p></div>
+      <div class="callout kv"><strong>The writer decides the result.</strong> The released Hugging Face code writes memory with a per-token Python loop: 2.36 s per 2,047-token slice on an A100. Our kernel writer commits the same slice in 0.43 s. With the shipped writer Nano is slower than full context at every length (310 s of preparation at 256K against 71 s with the kernel writer), so every Nano number on this page uses the kernel writer.</div>
     </div>
   </div>
 </section>
@@ -544,13 +567,13 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
         <text x="48" y="110" font-size="11" class="t-mono t-2">GPU 0 · GPU 1</text>
         <text x="48" y="130" font-size="12" font-weight="600">HF transformers · paper-faithful</text>
         <text x="48" y="147" font-size="11" class="t-2">MemT-1.0-Nano with memory (E1, E2)</text>
-        <text x="48" y="162" font-size="11" class="t-2">same weights, memory off = full-context baseline</text>
+        <text x="48" y="162" font-size="11" class="t-2">memory off = full-context baseline</text>
 
         <rect x="308" y="90" width="256" height="92" rx="8" class="box"/>
         <text x="320" y="110" font-size="11" class="t-mono t-2">GPU 2 · GPU 3</text>
         <text x="320" y="130" font-size="12" font-weight="600">Kernel port validation</text>
         <text x="320" y="147" font-size="11" class="t-2">fast GDN-2 writer vs reference loop</text>
-        <text x="320" y="162" font-size="11" class="t-2">then free for E1 sweeps</text>
+        <text x="320" y="162" font-size="11" class="t-2">then the second E1 sweep shard</text>
 
         <rect x="36" y="198" width="256" height="92" rx="8" class="box-kv"/>
         <text x="48" y="218" font-size="11" class="t-mono t-2">GPU 4 · GPU 5</text>
@@ -561,7 +584,8 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
         <rect x="308" y="198" width="256" height="92" rx="8" class="box"/>
         <text x="320" y="218" font-size="11" class="t-mono t-2">GPU 6 · GPU 7</text>
         <text x="320" y="238" font-size="12" font-weight="600">Spare</text>
-        <text x="320" y="255" font-size="11" class="t-2">reserved for the optional SGLang snapshot POC (E5)</text>
+        <text x="320" y="255" font-size="11" class="t-2">optional SGLang snapshot POC (E5)</text>
+        <text x="320" y="270" font-size="11" class="t-2">not run</text>
 
         <!-- FlashBlade -->
         <rect x="700" y="90" width="200" height="200" rx="12" class="box"/>
@@ -585,16 +609,80 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
         <text x="36" y="312" font-size="11" class="t-muted">Local NVMe RAID on the DGX is the reference target for the I/O tests. Cold reads use O_DIRECT so the page cache cannot flatter either side.</text>
       </svg>
       </div>
-      <figcaption>Three tracks on one machine: the paper's own protocol on GPUs 0 and 1, kernel validation on 2 and 3, and the production-style vLLM + pKVA baseline on 4 and 5, all sharing FlashBlade over two NFS paths.</figcaption>
+      <figcaption>Three tracks on one machine: the paper's own protocol on GPUs 0 and 1, kernel validation and then a second sweep shard on 2 and 3, and the production-style vLLM + pKVA baseline on 4 and 5, all sharing FlashBlade over two NFS paths.</figcaption>
     </figure>
     <div style="height:22px"></div>
     <div class="status">
-      <div class="st"><span class="id">E1</span><span class="name">Latency sweep, 35 BEAM histories × 7 lengths</span><span class="chip run">in progress</span><span class="small fg2">Driver and fast writer being built</span></div>
-      <div class="st"><span class="id">E2</span><span class="name">State size per history length</span><span class="chip run">partly measured</span><span class="small fg2">20,480 B/token and 40 MiB confirmed</span></div>
-      <div class="st"><span class="id">E3</span><span class="name">FlashBlade save and restore</span><span class="chip ready">harness ready</span><span class="small fg2">RDMA, TCP and local; 1 to 32 sessions</span></div>
-      <div class="st"><span class="id">E4</span><span class="name">vLLM + pKVA full-context resume</span><span class="chip run">in progress</span><span class="small fg2">Server up; hybrid-model KV persistence under test</span></div>
-      <div class="st"><span class="id">E5</span><span class="name">Authors' SGLang snapshot path</span><span class="chip">optional</span><span class="small fg2">Export and import timing only</span></div>
+      <div class="st"><span class="id">E1</span><span class="name">Latency sweep, 35 BEAM histories × 7 lengths</span><span class="chip done">measured</span><span class="small fg2">Nano 1.41× faster at 128K, 2.68× at 256K (paper 1.86×, 3.99×)</span></div>
+      <div class="st"><span class="id">E2</span><span class="name">State size per history length</span><span class="chip done">measured</span><span class="small fg2">Nano 40.00 MiB at every length; full context 4.99 GiB at 256K</span></div>
+      <div class="st"><span class="id">E3</span><span class="name">FlashBlade save and restore</span><span class="chip done">measured</span><span class="small fg2">40 MiB cold restore 8.2 ms; 23.7 GB/s over RDMA at 32 sessions</span></div>
+      <div class="st"><span class="id">E4</span><span class="name">vLLM + pKVA full-context resume</span><span class="chip done">measured</span><span class="small fg2">256K TTFT: 26.9 s cold, 0.64 s hot, 1.54 s from FlashBlade</span></div>
+      <div class="st"><span class="id">E5</span><span class="name">Authors' SGLang snapshot path</span><span class="chip">not run</span><span class="small fg2">Not run (optional track)</span></div>
     </div>
+    <p class="small muted" style="margin-top:10px">Status as of 2026-11-10. Full tables are in results/summary.md in the <a href="https://github.com/PureStorage-OpenConnect/memT-flashblade">reproduction repo</a>.</p>
+
+    <div style="height:28px"></div>
+    <div class="sec-head">
+      <h3>Saving and resuming from FlashBlade</h3>
+      <p class="fg2 prose small">All reads use O_DIRECT so the client page cache cannot help. RDMA is NFSv3 over RDMA, TCP is NFSv4.1, local is the DGX's NVMe RAID.</p>
+    </div>
+    <div class="cards">
+      <div class="card"><h3>One session, cold</h3><p>The 40 MiB Nano file reads in 8.2 ms over RDMA. A full-context state takes 455 ms at 128K and 849 ms at 256K, about 6 GB/s from a single stream. Parsing the same 40 MiB file through the safetensors library costs 62.7 ms, so a raw read into pinned memory is worth doing.</p></div>
+      <div class="card"><h3>Many sessions at once</h3><p>32 concurrent 5.2 GB restores pull 23.7 GB/s over RDMA, 18.3 GB/s over TCP and 7 to 8 GB/s from local NVMe. For small objects TCP holds 16 to 17 GB/s from 8 to 64 sessions (p95 89 ms at 32); RDMA dips at 32 sessions (5.2 GB/s for Nano files, p95 263 to 274 ms) and partly recovers at 64.</p></div>
+      <div class="card"><h3>Capacity and the production path</h3><p>A terabyte holds about 23,800 Nano sessions or 184 full-context sessions at 256K. vLLM 0.32 with pKVA writes 23.9 KiB per token, 6.36 GB in 492 files per 256K session, and restores it from FlashBlade in 1.54 s against 26.9 s to recompute (0.79 s against 8.68 s at 128K).</p></div>
+    </div>
+    <div style="height:22px"></div>
+    <figure>
+      <div class="scroll">
+      <svg class="wide" viewBox="0 0 660 262" role="img" aria-label="Time to first token when resuming a saved session from FlashBlade. MemT-Nano at any history length: 375 ms, made of an 8 ms read, a 2.4 ms copy to the GPU and about 365 ms of query prefill. Hugging Face full context at 256K: 2.25 s, made of 0.89 s read, 0.23 s copy and 1.11 s prefill. vLLM with pKVA at 256K: 1.54 s restored from FlashBlade, against 26.9 s cold." style="color: var(--fg-2); max-width: 760px">
+        <text x="20" y="22" font-size="12" font-weight="600">Resume from FlashBlade · time to first token, 512-token query</text>
+        <!-- scale: x = 190 + ms * 0.18 -->
+        <g class="t-mono" font-size="10">
+          <line x1="190" y1="34" x2="190" y2="210" stroke="currentColor" stroke-opacity="0.35"/>
+          <line x1="280" y1="34" x2="280" y2="210" class="grid"/>
+          <line x1="370" y1="34" x2="370" y2="210" class="grid"/>
+          <line x1="460" y1="34" x2="460" y2="210" class="grid"/>
+          <line x1="550" y1="34" x2="550" y2="210" class="grid"/>
+          <text x="190" y="226" text-anchor="middle" class="t-2">0</text>
+          <text x="280" y="226" text-anchor="middle" class="t-2">0.5 s</text>
+          <text x="370" y="226" text-anchor="middle" class="t-2">1.0 s</text>
+          <text x="460" y="226" text-anchor="middle" class="t-2">1.5 s</text>
+          <text x="550" y="226" text-anchor="middle" class="t-2">2.0 s</text>
+        </g>
+        <!-- MemT-Nano: 8 + 2.4 + 365 -->
+        <text x="180" y="62" font-size="12" text-anchor="end" font-weight="600">MemT-Nano</text>
+        <text x="180" y="76" font-size="10" text-anchor="end" class="t-muted">any history length</text>
+        <rect x="190" y="50" width="1.5" height="22" fill="var(--mem)" stroke="currentColor" stroke-width="0.5"/>
+        <rect x="191.5" y="50" width="0.5" height="22" fill="var(--mem)" fill-opacity="0.6"/>
+        <rect x="192" y="50" width="65.7" height="22" fill="var(--mem)" fill-opacity="0.35" stroke="currentColor" stroke-opacity="0.4" stroke-width="0.8"/>
+        <text x="264" y="65" font-size="11" class="t-mono">375 ms</text>
+        <text x="190" y="88" font-size="10" class="t-2">8 ms read · 2.4 ms copy · ~365 ms query prefill</text>
+        <!-- HF full context 256K: 890 + 230 + 1110 -->
+        <text x="180" y="117" font-size="12" text-anchor="end" font-weight="600">HF full context</text>
+        <text x="180" y="131" font-size="10" text-anchor="end" class="t-muted">256K tokens</text>
+        <rect x="190" y="105" width="160.2" height="22" fill="var(--kv)" stroke="currentColor" stroke-opacity="0.4" stroke-width="0.8"/>
+        <rect x="350.2" y="105" width="41.4" height="22" fill="var(--kv)" fill-opacity="0.6" stroke="currentColor" stroke-opacity="0.4" stroke-width="0.8"/>
+        <rect x="391.6" y="105" width="199.8" height="22" fill="var(--kv)" fill-opacity="0.35" stroke="currentColor" stroke-opacity="0.4" stroke-width="0.8"/>
+        <text x="598" y="120" font-size="11" class="t-mono">2.25 s</text>
+        <text x="190" y="143" font-size="10" class="t-2">0.89 s read · 0.23 s copy · 1.11 s query prefill</text>
+        <!-- vLLM + pKVA 256K restored: 1539 -->
+        <text x="180" y="172" font-size="12" text-anchor="end" font-weight="600">vLLM + pKVA</text>
+        <text x="180" y="186" font-size="10" text-anchor="end" class="t-muted">256K tokens</text>
+        <rect x="190" y="160" width="277" height="22" fill="var(--kv)" fill-opacity="0.6" stroke="currentColor" stroke-opacity="0.4" stroke-width="0.8" stroke-dasharray="3 2"/>
+        <text x="474" y="175" font-size="11" class="t-mono">1.54 s</text>
+        <text x="190" y="198" font-size="10" class="t-2">restored end to end, not split by stage · recomputing cold takes 26.9 s</text>
+        <g transform="translate(190,252)" font-size="10" class="t-2">
+          <rect x="0" y="-8" width="10" height="10" fill="currentColor" stroke="currentColor"/>
+          <text x="15" y="1">storage read</text>
+          <rect x="100" y="-8" width="10" height="10" fill="currentColor" fill-opacity="0.6"/>
+          <text x="115" y="1">copy to GPU</text>
+          <rect x="200" y="-8" width="10" height="10" fill="currentColor" fill-opacity="0.35" stroke="currentColor" stroke-opacity="0.4"/>
+          <text x="215" y="1">query prefill to first token</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Where the time goes when a saved session comes back from FlashBlade over RDMA. Nano's read is too short to see at this scale; its resume is dominated by the ~350 ms Hugging Face prefill floor and is the same at every history length. Medians, 2 × A100-80GB, measured 2026-11-10.</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -623,7 +711,7 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     <li>Paper: <a href="https://arxiv.org/abs/2610.26825">MemT-1.0: Towards Memory-Native Evolution</a> (MemTensor team, arXiv 2610.26825).</li>
     <li>Code: <a href="https://github.com/MemTensor/MemT-1.0">github.com/MemTensor/MemT-1.0</a>. Weights: <a href="https://huggingface.co/MemTensor/MemT-1.0-Nano">MemT-1.0-Nano</a> and <a href="https://huggingface.co/MemTensor/MemT-1.0-Flash">MemT-1.0-Flash</a> on Hugging Face.</li>
     <li>Histories: <a href="https://huggingface.co/datasets/Mohammadta/BEAM">BEAM</a> (Tavakoli et al., arXiv 2510.27246).</li>
-    <li>Our reproduction repo and blog: coming with the results.</li>
+    <li>Our reproduction: <a href="https://github.com/PureStorage-OpenConnect/memT-flashblade">github.com/PureStorage-OpenConnect/memT-flashblade</a>, with code, raw results (results/summary.md) and the blog post in docs/blog.md. Measurements as of 2026-11-10.</li>
   </ul>
 </section>
 
@@ -665,12 +753,16 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     var lengths = [512, 2048, 8192, 32768, 65536, 131072, 262144, 524288, 1048576];
     var kvOf = function (t) { return 20480 * t + 62.5 * MiB; };
     var memB = 40 * MiB, loraB = 172.5 * MiB;
+    /* ours: measured safetensors bytes, mean per bucket (results/summary.md, 2026-11-10); HF keeps GDN state in BF16 */
+    var GiB = 1024 * MiB;
+    var ours = { 512: 41.94 * MiB, 2048: 71.94 * MiB, 8192: 191.91 * MiB, 32768: 670.35 * MiB, 65536: 1.28 * GiB, 131072: 2.51 * GiB, 262144: 4.99 * GiB };
+    var oursMem = 41944024;
     var W = 880, H = 360, L = 78, R = 150, T = 20, B = 48;
     var pw = W - L - R, ph = H - T - B;
     var x = function (t) { return L + pw * (Math.log2(t) - 9) / (20 - 9); };
     var yMin = 10 * MiB, yMax = 100 * 1024 * MiB;
     var y = function (b) { return T + ph * (1 - (Math.log10(b) - Math.log10(yMin)) / (Math.log10(yMax) - Math.log10(yMin))); };
-    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Per-session persistent state versus history length: full-context KV cache grows from about 72 MiB at 512 tokens to 5.06 GiB at 256K; MemT-1.0-Nano stays at 40 MiB; Temp-LoRA stays at 172.5 MiB.' }, plot);
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'Per-session persistent state versus history length. Paper: full-context KV cache grows from about 72 MiB at 512 tokens to 5.06 GiB at 256K; MemT-1.0-Nano stays at 40 MiB; Temp-LoRA stays at 172.5 MiB. Measured on our hardware: full context 42 MiB at 512 tokens, 2.51 GiB at 128K and 4.99 GiB at 256K; MemT-1.0-Nano 40.00 MiB at all seven lengths.' }, plot);
     svg.style.minWidth = '560px';
     var yticks = [10 * MiB, 100 * MiB, 1024 * MiB, 10 * 1024 * MiB, 100 * 1024 * MiB];
     yticks.forEach(function (b) {
@@ -689,7 +781,7 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     /* series */
     var kvPts = lengths.filter(function (t) { return t <= 262144; }).map(function (t) { return [x(t), y(kvOf(t))]; });
     var kvExt = lengths.filter(function (t) { return t >= 262144; }).map(function (t) { return [x(t), y(kvOf(t))]; });
-    el('polyline', { points: kvPts.map(function (p) { return p.join(','); }).join(' '), 'class': 'ln-kv' }, svg);
+    el('polyline', { points: kvPts.map(function (p) { return p.join(','); }).join(' '), 'class': 'ln-kv' }, svg).style.opacity = 0.55;
     el('polyline', { points: kvExt.map(function (p) { return p.join(','); }).join(' '), 'class': 'ln-kv ln-dash' }, svg).style.opacity = 0.7;
     el('line', { x1: x(512), x2: x(1048576), y1: y(loraB), y2: y(loraB), 'class': 'ln' }, svg).setAttribute('style', 'stroke: var(--lora)');
     el('line', { x1: x(512), x2: x(1048576), y1: y(memB), y2: y(memB), 'class': 'ln-mem' }, svg);
@@ -699,14 +791,22 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     txt(svg, x(1048576) + 10, y(memB) + 4, 'MemT-Nano · 40 MiB', { 'class': 't-2', 'font-weight': 600 });
     /* 66x annotation */
     el('line', { x1: x(131072), x2: x(131072), y1: y(kvOf(131072)), y2: y(memB), 'class': 'ln', 'stroke-dasharray': '2 3' }, svg);
-    txt(svg, x(131072) + 6, (y(kvOf(131072)) + y(memB)) / 2 + 4, '66× at 128K', { 'class': 't-2', 'font-weight': 600 });
-    /* markers */
+    var midY = (y(kvOf(131072)) + y(memB)) / 2;
+    txt(svg, x(131072) + 6, midY - 2, '66× paper', { 'class': 't-2', 'font-weight': 600 });
+    txt(svg, x(131072) + 6, midY + 12, '64× ours at 128K', { 'class': 't-2', 'font-weight': 600 });
+    /* paper markers: hollow */
     lengths.forEach(function (t) {
-      var c = el('circle', { cx: x(t), cy: y(kvOf(t)), r: 4.5, 'class': 'dot' }, svg); c.setAttribute('style', 'fill: var(--kv)'); if (t > 262144) c.style.opacity = 0.6;
+      var c = el('circle', { cx: x(t), cy: y(kvOf(t)), r: 6, 'class': 'dot-paper' }, svg); c.setAttribute('style', 'stroke: var(--kv)'); if (t > 262144) c.style.opacity = 0.6;
     });
     [512, 262144, 1048576].forEach(function (t) {
-      el('circle', { cx: x(t), cy: y(memB), r: 4.5, 'class': 'dot' }, svg).setAttribute('style', 'fill: var(--mem)');
-      el('circle', { cx: x(t), cy: y(loraB), r: 4.5, 'class': 'dot' }, svg).setAttribute('style', 'fill: var(--lora)');
+      el('circle', { cx: x(t), cy: y(memB), r: 6, 'class': 'dot-paper' }, svg).setAttribute('style', 'stroke: var(--mem)');
+      el('circle', { cx: x(t), cy: y(loraB), r: 6, 'class': 'dot-paper' }, svg).setAttribute('style', 'stroke: var(--lora)');
+    });
+    /* our markers: filled */
+    Object.keys(ours).forEach(function (k) {
+      var t = +k;
+      el('circle', { cx: x(t), cy: y(ours[t]), r: 4, 'class': 'dot' }, svg).setAttribute('style', 'fill: var(--kv)');
+      el('circle', { cx: x(t), cy: y(oursMem), r: 4, 'class': 'dot' }, svg).setAttribute('style', 'fill: var(--mem)');
     });
     /* hover */
     var cross = el('line', { x1: 0, x2: 0, y1: T, y2: T + ph, 'class': 'axis' }, svg); cross.style.display = 'none';
@@ -718,13 +818,14 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     }
     function move(ev) {
       var r = svg.getBoundingClientRect(); var px = (ev.clientX - r.left) * W / r.width;
-      var t = nearest(px); var ratio = kvOf(t) / memB;
+      var t = nearest(px); var ratio = kvOf(t) / memB; var o = ours[t];
       cross.setAttribute('x1', x(t)); cross.setAttribute('x2', x(t)); cross.style.display = '';
       tip.innerHTML = '<div><b>' + fmtTok(t) + ' tokens</b>' + (t > 262144 ? ' <span class="muted">(past the window)</span>' : '') + '</div>' +
-        '<div class="row"><span><i style="background:var(--kv)"></i>KV cache</span><b>' + fmtBytes(kvOf(t)) + '</b></div>' +
-        '<div class="row"><span><i style="background:var(--mem)"></i>MemT-Nano</span><b>40 MiB</b></div>' +
-        '<div class="row"><span><i style="background:var(--lora)"></i>Temp-LoRA</span><b>172.5 MiB</b></div>' +
-        '<div class="row muted"><span>KV ÷ MemT</span><b>' + ratio.toFixed(ratio < 10 ? 1 : 0) + '×</b></div>';
+        '<div class="row"><span><i style="background:var(--kv)"></i>KV, paper</span><b>' + fmtBytes(kvOf(t)) + '</b></div>' +
+        (o ? '<div class="row"><span><i style="background:var(--kv)"></i>KV, ours</span><b>' + fmtBytes(o) + '</b></div>' : '') +
+        '<div class="row"><span><i style="background:var(--mem)"></i>MemT-Nano</span><b>40 MiB' + (o ? ' (both)' : '') + '</b></div>' +
+        '<div class="row"><span><i style="background:var(--lora)"></i>Temp-LoRA, paper</span><b>172.5 MiB</b></div>' +
+        '<div class="row muted"><span>KV ÷ MemT, paper' + (o ? ' / ours' : '') + '</span><b>' + ratio.toFixed(ratio < 10 ? 1 : 0) + '×' + (o ? ' / ' + (o / oursMem).toFixed(o / oursMem < 10 ? 1 : 0) + '×' : '') + '</b></div>';
       tip.style.display = 'block';
       var left = (x(t) / W) * r.width + 14; if (left + 200 > r.width) left = (x(t) / W) * r.width - 214;
       tip.style.left = left + 'px'; tip.style.top = (r.height * 0.12) + 'px';
@@ -733,23 +834,27 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     hit.addEventListener('mouseleave', function () { tip.style.display = 'none'; cross.style.display = 'none'; });
     /* table */
     var tbl = document.getElementById('storage-table');
-    var rows = lengths.map(function (t) { return '<tr><td class="num">' + fmtTok(t) + (t > 262144 ? ' *' : '') + '</td><td class="num">' + fmtBytes(kvOf(t)) + '</td><td class="num">40 MiB</td><td class="num">172.5 MiB</td><td class="num">' + (kvOf(t) / memB).toFixed(1) + '×</td></tr>'; }).join('');
-    tbl.innerHTML = '<table><thead><tr><th class="num">history</th><th class="num">KV cache</th><th class="num">MemT-Nano</th><th class="num">Temp-LoRA</th><th class="num">KV ÷ MemT</th></tr></thead><tbody>' + rows + '</tbody></table><p class="small muted" style="margin-top:6px">* beyond the backbone\'s 256K context window; shown for scale only.</p>';
+    var rows = lengths.map(function (t) { var o = ours[t]; return '<tr><td class="num">' + fmtTok(t) + (t > 262144 ? ' *' : '') + '</td><td class="num">' + fmtBytes(kvOf(t)) + '</td><td class="num">' + (o ? fmtBytes(o) : '–') + '</td><td class="num">40 MiB</td><td class="num">' + (o ? '40.00 MiB' : '–') + '</td><td class="num">172.5 MiB</td><td class="num">' + (kvOf(t) / memB).toFixed(1) + '×</td><td class="num">' + (o ? (o / oursMem).toFixed(1) + '×' : '–') + '</td></tr>'; }).join('');
+    tbl.innerHTML = '<table><thead><tr><th class="num">history</th><th class="num">KV, paper</th><th class="num">KV, ours</th><th class="num">MemT, paper</th><th class="num">MemT, ours</th><th class="num">Temp-LoRA, paper</th><th class="num">ratio, paper</th><th class="num">ratio, ours</th></tr></thead><tbody>' + rows + '</tbody></table><p class="small muted" style="margin-top:6px">* beyond the backbone\'s 256K context window; shown for scale only. Ours: measured safetensors bytes, 2026-11-10; full context carries the linear-attention state in BF16 (32 MiB), the paper counts FP32 (62.5 MiB).</p>';
     var btn = document.getElementById('storage-table-btn');
     btn.addEventListener('click', function () { var open = tbl.hidden; tbl.hidden = !open; btn.setAttribute('aria-pressed', String(open)); btn.textContent = open ? 'Hide table' : 'Show table'; });
   })();
 
-  /* speed dot plot (paper Fig 3) */
+  /* speed dot plot: paper Fig 3 (hollow) against our measurement (filled) */
   (function () {
     var plot = document.getElementById('speed-plot'); if (!plot) return;
     var tip = document.getElementById('speed-tip');
     var data = [
-      { hist: '128K', rows: [ { s: 'Full context', v: 30.07, c: 'var(--kv)' }, { s: 'MemT-1.0-Nano', v: 16.19, c: 'var(--mem)' }, { s: 'Temp-LoRA', v: 700.82, c: 'var(--lora)' } ] },
-      { hist: '256K', rows: [ { s: 'Full context', v: 94.47, c: 'var(--kv)' }, { s: 'MemT-1.0-Nano', v: 23.69, c: 'var(--mem)' }, { s: 'Temp-LoRA', v: 1400.88, c: 'var(--lora)' } ] }
+      { hist: '128K', sets: [
+        { src: 'paper', rows: [ { s: 'Full context', v: 30.07, c: 'var(--kv)' }, { s: 'MemT-1.0-Nano', v: 16.19, c: 'var(--mem)' }, { s: 'Temp-LoRA', v: 700.82, c: 'var(--lora)' } ] },
+        { src: 'ours', rows: [ { s: 'Full context', v: 58.11, c: 'var(--kv)' }, { s: 'MemT-1.0-Nano', v: 41.25, c: 'var(--mem)' } ] } ] },
+      { hist: '256K', sets: [
+        { src: 'paper', rows: [ { s: 'Full context', v: 94.47, c: 'var(--kv)' }, { s: 'MemT-1.0-Nano', v: 23.69, c: 'var(--mem)' }, { s: 'Temp-LoRA', v: 1400.88, c: 'var(--lora)' } ] },
+        { src: 'ours', rows: [ { s: 'Full context', v: 187.16, c: 'var(--kv)' }, { s: 'MemT-1.0-Nano', v: 69.97, c: 'var(--mem)' } ] } ] }
     ];
-    var W = 520, H = 230, L = 70, R = 24, T = 16, B = 40; var pw = W - L - R;
+    var W = 520, H = 290, L = 96, R = 24, T = 10, B = 40; var pw = W - L - R;
     var x = function (v) { return L + pw * (Math.log10(v) - 1) / (Math.log10(3000) - 1); };
-    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'End-to-end latency reported by the paper. At 128K tokens: full context 30.07 s, MemT-1.0-Nano 16.19 s, Temp-LoRA 700.82 s. At 256K: 94.47 s, 23.69 s and 1400.88 s.' }, plot);
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': 'End-to-end latency, paper against our measurement. At 128K tokens the paper reports full context 30.07 s, MemT-1.0-Nano 16.19 s and Temp-LoRA 700.82 s; we measured full context 58.1 s and Nano 41.3 s. At 256K the paper reports 94.47 s, 23.69 s and 1400.88 s; we measured 187.2 s and 70.0 s. Temp-LoRA was not run.' }, plot);
     [10, 30, 100, 300, 1000, 3000].forEach(function (v) {
       el('line', { x1: x(v), x2: x(v), y1: T, y2: H - B, 'class': 'grid' }, svg);
       txt(svg, x(v), H - B + 16, String(v), { 'text-anchor': 'middle', 'class': 't-mono t-2' });
@@ -758,21 +863,26 @@ dd { margin: 0; color: var(--fg-2); font-size: 0.93rem; }
     var groupH = (H - T - B) / data.length;
     data.forEach(function (g, gi) {
       var y0 = T + gi * groupH;
-      txt(svg, L - 10, y0 + groupH / 2 + 4, g.hist, { 'text-anchor': 'end', 'class': 't-mono', 'font-weight': 600, 'font-size': 12 });
-      el('line', { x1: L, x2: L + pw, y1: y0 + groupH / 2, y2: y0 + groupH / 2, 'class': 'axis' }, svg);
-      g.rows.forEach(function (r) {
-        var cy = y0 + groupH / 2;
-        var c = el('circle', { cx: x(r.v), cy: cy, r: 7, 'class': 'dot' }, svg); c.setAttribute('style', 'fill:' + r.c + '; cursor: default');
-        var lbl = txt(svg, x(r.v), cy - 12, r.v.toFixed(r.v >= 100 ? 0 : 1) + ' s', { 'text-anchor': 'middle', 'class': 't-mono t-2', 'font-size': 10 });
-        if (r.s === 'MemT-1.0-Nano') { lbl.setAttribute('y', cy + 22); }
-        c.addEventListener('mousemove', function (ev) {
-          var rect = svg.getBoundingClientRect();
-          tip.innerHTML = '<div><b>' + g.hist + ' history</b></div><div class="row"><span><i style="background:' + r.c + '"></i>' + r.s + '</span><b>' + r.v + ' s</b></div>';
-          tip.style.display = 'block';
-          var left = (x(r.v) / W) * rect.width + 12; if (left + 200 > rect.width) left = (x(r.v) / W) * rect.width - 210;
-          tip.style.left = left + 'px'; tip.style.top = ((cy / H) * rect.height - 10) + 'px';
+      txt(svg, 8, y0 + groupH / 2 + 4, g.hist, { 'class': 't-mono', 'font-weight': 600, 'font-size': 12 });
+      g.sets.forEach(function (set, si) {
+        var paper = set.src === 'paper';
+        var cy = y0 + groupH * (si === 0 ? 0.3 : 0.72);
+        txt(svg, L - 8, cy + 4, paper ? 'paper' : 'ours', { 'text-anchor': 'end', 'class': 't-muted', 'font-size': 10 });
+        el('line', { x1: L, x2: L + pw, y1: cy, y2: cy, 'class': 'axis' }, svg);
+        set.rows.forEach(function (r) {
+          var c = el('circle', { cx: x(r.v), cy: cy, r: paper ? 6 : 6.5, 'class': paper ? 'dot-paper' : 'dot' }, svg);
+          c.setAttribute('style', (paper ? 'stroke:' : 'fill:') + r.c + '; cursor: default');
+          var lbl = txt(svg, x(r.v), cy - 12, r.v.toFixed(r.v >= 100 ? 0 : 1) + ' s', { 'text-anchor': 'middle', 'class': 't-mono t-2', 'font-size': 10 });
+          if (r.s === 'MemT-1.0-Nano') { lbl.setAttribute('y', cy + 21); }
+          c.addEventListener('mousemove', function () {
+            var rect = svg.getBoundingClientRect();
+            tip.innerHTML = '<div><b>' + g.hist + ' history</b> <span class="muted">' + (paper ? 'paper (hardware unspecified)' : 'ours, 2 × A100-80GB') + '</span></div><div class="row"><span><i style="background:' + r.c + '"></i>' + r.s + '</span><b>' + r.v + ' s</b></div>';
+            tip.style.display = 'block';
+            var left = (x(r.v) / W) * rect.width + 12; if (left + 200 > rect.width) left = (x(r.v) / W) * rect.width - 210;
+            tip.style.left = Math.max(0, left) + 'px'; tip.style.top = ((cy / H) * rect.height - 10) + 'px';
+          });
+          c.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
         });
-        c.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
       });
     });
   })();
