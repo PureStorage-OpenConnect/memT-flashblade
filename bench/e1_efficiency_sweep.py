@@ -46,6 +46,7 @@ CHUNK_TOKENS = 2048
 PREFILL_CHUNK = 8192
 GEN_TOKENS = 128
 IMPL_PREFILL, IMPL_DECODE = "grouped_mm", "batched_mm"
+IMPL_QUERY = "grouped_mm"  # query prefill (<=~530 tokens); set by --query-experts
 DEFAULT_LENGTHS = [512, 2048, 8192, 32768, 65536, 131072, 262144]
 
 
@@ -182,13 +183,13 @@ class Runner:
     @torch.no_grad()
     def query(self, q_ids, restore, n_new=GEN_TOKENS, memory=False):
         """restore() -> (memory_state or cache). Timed end to end, returns dict."""
+        self.impl.set(IMPL_QUERY)  # switch outside the timed region
         sync()
         t0 = time.perf_counter()
         st = restore()
         sync()
         t_r = time.perf_counter()
         kw = {"memory_state": st} if memory else {"past_key_values": st}
-        self.impl.set(IMPL_PREFILL)
         out = self.model(input_ids=self.t(q_ids), use_cache=True, logits_to_keep=1, **kw)
         nxt = out.logits[:, -1].argmax(-1)
         first = nxt.item()
@@ -376,13 +377,19 @@ def main():
     ap.add_argument("--out", default="/mnt/data/robert-scripts/m1t-test/results/e1_sweep.jsonl")
     ap.add_argument("--query-tokens", type=int, default=512)
     ap.add_argument("--tol", type=float, default=0.01)
-    ap.add_argument("--slice-mode", choices=["messages", "dense"], default="messages",
-                    help="nano slices: pack whole messages (default) or fill every slice to 2048 tokens")
+    ap.add_argument("--slice-mode", choices=["messages", "dense"], default="dense",
+                    help="nano slices: dense (default) = contiguous content pieces of 2048 minus chat-template "
+                         "overhead tokens, so every chat-formatted chunk is <=2048 and commit_memory never splits "
+                         "it; messages = pack whole messages into <=2048-token chunks")
+    ap.add_argument("--query-experts", choices=["grouped_mm", "batched_mm"], default="grouped_mm",
+                    help="MoE experts kernel for the query prefill (history prefill/commits always grouped_mm)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-warmup", action="store_true")
     args = ap.parse_args()
 
     lengths = sorted(int(x) for x in args.lengths.split(","))
+    global IMPL_QUERY
+    IMPL_QUERY = args.query_experts
     systems = [s.strip() for s in args.systems.split(",") if s.strip()]
     assert set(systems) <= {"nano", "fullctx"}, systems
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -451,7 +458,8 @@ def main():
         "cuda_visible": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "versions": {"torch": torch.__version__, "cuda": torch.version.cuda, "transformers": transformers.__version__,
                      "fla": _ver("fla"), "python": platform.python_version()},
-        "experts_impl": {"prefill": IMPL_PREFILL, "decode": IMPL_DECODE}, "attn": "sdpa",
+        "experts_impl": {"prefill": IMPL_PREFILL, "query_prefill": args.query_experts, "decode": IMPL_DECODE},
+        "attn": "sdpa",
         "gen_tokens": GEN_TOKENS, "chunk_tokens": CHUNK_TOKENS, "fullctx_prefill_chunk": PREFILL_CHUNK,
         "query_content_tokens": len(q_content), "alloc_conf": os.environ.get("PYTORCH_CUDA_ALLOC_CONF"),
         "slice_mode": args.slice_mode,
