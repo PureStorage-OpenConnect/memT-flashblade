@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH=$R/pkva/v1.3.0/debcontent/usr/local/lib/cuobj:$LD_LIBRARY
 
 start_kva() {
   rm -f $SOCK
-  CUDA_VISIBLE_DEVICES=$GPUS PUREKV_LOG_LEVEL=${PUREKV_LOG_LEVEL:-INFO} setsid nohup $KVA --config $D/kva-memt-a.json \
+  CUDA_VISIBLE_DEVICES=$GPUS PUREKV_LOG_LEVEL=${PUREKV_LOG_LEVEL:-INFO} setsid nohup $KVA --config ${KVA_CONFIG:-$D/kva-memt-a.json} \
     > $L/kva-memt-a.log 2>&1 & echo $! > $L/kva-memt-a.pid
   for i in $(seq 60); do [ -S $SOCK ] && break; sleep 1; done
   [ -S $SOCK ] || { echo "kva_server did not create $SOCK; see $L/kva-memt-a.log"; exit 1; }
