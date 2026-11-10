@@ -13,15 +13,36 @@ to both systems is known and identical; the text form is only for inspection.
 """
 from __future__ import annotations
 
+import glob
+import os
 from dataclasses import dataclass, field
 
-BEAM_PARQUET = ("/mnt/data/robert-scripts/hf-cache/hub/datasets--Mohammadta--BEAM/snapshots/"
-                "3205395e897e7318c7b094ef4e6047b9b82dbb03/data/1M-00000-of-00001.parquet")
+HF_HOME = os.path.expanduser(os.environ.get("HF_HOME", "~/.cache/huggingface"))
+BEAM_GLOB = os.path.join(HF_HOME, "hub", "datasets--Mohammadta--BEAM", "snapshots", "*",
+                         "data", "1M-00000-of-00001.parquet")
+
+
+def find_beam_parquet(strict=True):
+    """The BEAM-1M parquet in the HF cache ($HF_HOME/hub/datasets--Mohammadta--BEAM/snapshots/<rev>/...).
+    strict=False returns the glob pattern instead of raising (so importing this module never fails)."""
+    hits = sorted(glob.glob(BEAM_GLOB))
+    if len(hits) == 1:
+        return hits[0]
+    if not strict:
+        return BEAM_GLOB
+    if not hits:
+        raise FileNotFoundError(f"BEAM-1M parquet not found: {BEAM_GLOB} (set HF_HOME, or download "
+                                "Mohammadta/BEAM with huggingface-cli)")
+    raise RuntimeError(f"multiple BEAM snapshots match {BEAM_GLOB}: {hits}; pass an explicit path")
+
+
+BEAM_PARQUET = find_beam_parquet(strict=False)
 SEP = "\n\n"
 
 
-def load_beam(path=BEAM_PARQUET):
+def load_beam(path=None):
     import pyarrow.parquet as pq
+    path = path or find_beam_parquet()
     t = pq.read_table(path, columns=["conversation_id", "chat"])
     ids = t.column("conversation_id").to_pylist()
     chats = t.column("chat").to_pylist()

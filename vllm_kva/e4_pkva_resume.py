@@ -2,7 +2,7 @@
 """E4 part 1: resume a session from FlashBlade with vLLM + pKVA (full-context KV + GDN checkpoints).
 
 Prereqs: kva_server (2 GiB pinned host pool: kva-memt-a-e4.json) + vLLM (config B, MNBT 16896) up via
-  LOGDIR=<e4 logdir> KVA_CONFIG=$PWD/kva-memt-a-e4.json ./start.sh all
+  LOGDIR=$M1T_ROOT/logs/e4 KVA_CONFIG=$PWD/kva-memt-a-e4.json ./start.sh all
 Token ids come from bench/e4_build_ids.py (identical ids are used by the HF part).
 
 Per (history, N), in order:
@@ -22,7 +22,8 @@ import requests
 
 CHUNK = 1056
 HERE = os.path.dirname(os.path.abspath(__file__))
-L_DEFAULT = "/tmp/claude-1000/-mnt-data-robert-scripts-m1t-test/d52341ba-cd8c-4b9e-83de-e2ab4ba1debb/scratchpad/e4"
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+L_DEFAULT = os.environ.get("LOGDIR") or os.path.join(M1T_ROOT, "logs", "e4")
 
 
 def log(m):
@@ -146,12 +147,12 @@ class Env:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ids", default="/mnt/data/robert-scripts/m1t-test/scratch_state/e4/e4_ids.json")
-    ap.add_argument("--out", default="/mnt/data/robert-scripts/m1t-test/results/e4_pkva_resume.jsonl")
+    ap.add_argument("--ids", default=os.path.join(M1T_ROOT, "scratch_state", "e4", "e4_ids.json"))
+    ap.add_argument("--out", default=os.path.join(M1T_ROOT, "results", "e4_pkva_resume.jsonl"))
     ap.add_argument("--port", type=int, default=8101)
     ap.add_argument("--model", default="qwen3.6-35b-a3b")
     ap.add_argument("--kva-log", default=f"{L_DEFAULT}/kva-memt-a.log")
-    ap.add_argument("--kvstore", default="/mnt/data/robert-scripts/m1t-test/kvstore/memt-a")
+    ap.add_argument("--kvstore", default=os.environ.get("KVSTORE_DIR") or os.path.join(M1T_ROOT, "kvstore", "memt-a"))
     ap.add_argument("--restored", type=int, default=3)
     ap.add_argument("--hot", type=int, default=2)
     ap.add_argument("--max-retry", type=int, default=3)
@@ -197,7 +198,7 @@ def main():
         arch = f"{a.kva_log[:-4]}.{run_id}.p{part[0]:03d}.log"
         subprocess.run(["cp", a.kva_log, arch], check=True)
         env = {**os.environ, "LOGDIR": os.path.dirname(a.kva_log),
-               "KVA_CONFIG": a.kva_config}
+               "KVA_CONFIG": a.kva_config, "KVSTORE_DIR": a.kvstore}
         t0 = time.perf_counter()
         subprocess.run([os.path.join(HERE, "stop.sh"), "kva"], env=env, check=True, capture_output=True)
         subprocess.run([os.path.join(HERE, "start.sh"), "kva"], env=env, check=True, capture_output=True)

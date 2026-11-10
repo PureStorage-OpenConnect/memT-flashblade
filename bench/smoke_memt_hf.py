@@ -16,6 +16,7 @@ from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 
 MODEL_ID = "MemTensor/MemT-1.0-Nano"
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHUNK = 2048
 # HF MoE experts kernel per phase. On A100 (sm80) torch's grouped_mm loops over all 256 experts on the
 # host (~20k aten::mm + .item() per decode step), so decode uses batched_mm; prefill keeps grouped_mm
@@ -204,7 +205,7 @@ def main():
     ap.add_argument("--model", default=MODEL_ID)
     ap.add_argument("--n-facts", type=int, default=240)
     ap.add_argument("--gen-tokens", type=int, default=128)
-    ap.add_argument("--state-dir", default="/mnt/data/robert-scripts/m1t-test/scratch_state")
+    ap.add_argument("--state-dir", default=os.path.join(M1T_ROOT, "scratch_state"))
     ap.add_argument("--max-mem", default="75GiB")
     ap.add_argument("--prefill-experts", default="grouped_mm")
     ap.add_argument("--decode-experts", default="batched_mm")

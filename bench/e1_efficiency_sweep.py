@@ -12,7 +12,7 @@ Per query: restore prepared state from a (pinned) CPU copy -> GPU, prefill query
 greedy decode (EOS ignored). ttft_s includes restore (paper: "TTFT include[s] state restoration").
 
 Example:
-  CUDA_VISIBLE_DEVICES=0,1 HF_HOME=/mnt/data/robert-scripts/hf-cache HF_HUB_OFFLINE=1 \
+  cd $M1T_ROOT && CUDA_VISIBLE_DEVICES=0,1 HF_HOME=$HF_HOME HF_HUB_OFFLINE=1 \
     .venv/bin/python bench/e1_efficiency_sweep.py --histories 2 --lengths 512,2048 --reps 2
 --histories: an integer = first K conversations; a comma list (e.g. "0,5," or "3,7") = indices.
 """
@@ -38,6 +38,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 import beam_histories as bh  # noqa: E402
 
@@ -374,7 +375,7 @@ def main():
     ap.add_argument("--systems", default="nano,fullctx")
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--writer", choices=["reference", "fast"], default="fast")
-    ap.add_argument("--out", default="/mnt/data/robert-scripts/m1t-test/results/e1_sweep.jsonl")
+    ap.add_argument("--out", default=os.path.join(M1T_ROOT, "results", "e1_sweep.jsonl"))
     ap.add_argument("--query-tokens", type=int, default=512)
     ap.add_argument("--tol", type=float, default=0.01)
     ap.add_argument("--slice-mode", choices=["messages", "dense"], default="dense",

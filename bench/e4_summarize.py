@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Markdown tables for E4 results. Usage: e4_summarize.py [--run-pkva ID] [--run-memt ID]"""
-import argparse, json, statistics as st
+import argparse, json, os, statistics as st
 from collections import defaultdict
 
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 ap = argparse.ArgumentParser()
-ap.add_argument("--pkva", default="/mnt/data/robert-scripts/m1t-test/results/e4_pkva_resume.jsonl")
-ap.add_argument("--memt", default="/mnt/data/robert-scripts/m1t-test/results/e4_memt_resume.jsonl")
+ap.add_argument("--pkva", default=os.path.join(M1T_ROOT, "results", "e4_pkva_resume.jsonl"))
+ap.add_argument("--memt", default=os.path.join(M1T_ROOT, "results", "e4_memt_resume.jsonl"))
 ap.add_argument("--run-pkva"); ap.add_argument("--run-memt")
 a = ap.parse_args()
 

@@ -4,7 +4,7 @@ One command regenerates every figure in `figures/` and the tables in `results/su
 from the JSONL files in `results/`. It only reads `results/*.jsonl`; it never writes to them.
 
 ```bash
-cd /mnt/data/robert-scripts/m1t-test
+cd $M1T_ROOT   # repo root
 .venv-analysis/bin/python analysis/make_figures.py --out figures/ --summary results/summary.md
 ```
 
@@ -19,7 +19,7 @@ other figures are still produced).
 A separate CPU-only venv (do not use `.venv`, which the GPU sweep uses):
 
 ```bash
-UV=/mnt/data/robert-scripts/gpu-scratch/uvbin/uv
+UV=uv   # or the full path to your uv binary
 $UV venv --python /usr/bin/python3.12 .venv-analysis
 $UV pip install --python .venv-analysis/bin/python -r env/requirements-analysis.txt
 ```

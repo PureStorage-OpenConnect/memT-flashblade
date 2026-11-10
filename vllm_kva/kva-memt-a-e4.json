@@ -1,7 +1,7 @@
 {
   "server": { "socket": "unix:/tmp/kva-memt-a.sock" },
   "backend": {
-    "storage": [ { "localfs": { "path": "/mnt/data/robert-scripts/m1t-test/kvstore/memt-a" } } ],
+    "storage": [ { "localfs": { "path": "KVSTORE_DIR" } } ],
     "chunk_batch_size": 32,
     "enable_dynamic_chunk_batch_size": true,
     "lifecycle": { "tensor_ttl_hours": 24 }

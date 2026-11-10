@@ -8,11 +8,12 @@
 set -e
 N=$1; TAG=${2:-hist}; shift 2 || true; CONDS=${*:-cold hot reset}
 D=$(cd "$(dirname "$0")" && pwd)
-L=${LOGDIR:-/tmp/claude-1000/-mnt-data-robert-scripts-m1t-test/d52341ba-cd8c-4b9e-83de-e2ab4ba1debb/scratchpad/vllm}
+M1T_ROOT=${M1T_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
+L=${LOGDIR:-$M1T_ROOT/logs/vllm}
 OUT=${OUT:-$L/results.jsonl}; PORT=${PORT:-8101}
-KVS=/mnt/data/robert-scripts/m1t-test/kvstore/memt-a
-PY=/mnt/data/robert-scripts/kvshowdown/venvs/vllm0.32-pkva1.3.0/bin/python
-export HF_HOME=/mnt/data/robert-scripts/hf-cache HF_HUB_OFFLINE=1
+KVS=${KVSTORE_DIR:-$M1T_ROOT/kvstore/memt-a}   # must match the store start.sh rendered into the kva config
+PY=${VLLM_PY:-python}                          # python of the vLLM + pKVA venv (needs transformers for bench_ttft.py)
+export HF_HUB_OFFLINE=1                        # HF_HOME is passed through from the caller's environment
 for c in $CONDS; do
   if [ $c = reset ]; then
     echo "reset_prefix_cache: $(curl -s -X POST localhost:$PORT/reset_prefix_cache)"

@@ -10,6 +10,7 @@ Output JSON: {meta, frame, sep, q_content, histories: {"<h>_<N>": {...ids...}}, 
 """
 import argparse, json, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import beam_histories as bh
 
 CAP_256K = 261120
@@ -20,7 +21,7 @@ ap.add_argument("--histories", default="0,1,2",
 ap.add_argument("--lengths", default="2048,8192,32768,65536,131072,262144")
 ap.add_argument("--fillers", default="20:131072,21:131072",
                 help="history:N pairs used only to evict pKVA's pinned host pool")
-ap.add_argument("--out", default="/mnt/data/robert-scripts/m1t-test/scratch_state/e4/e4_ids.json")
+ap.add_argument("--out", default=os.path.join(M1T_ROOT, "scratch_state", "e4", "e4_ids.json"))
 a = ap.parse_args()
 
 from transformers import AutoTokenizer

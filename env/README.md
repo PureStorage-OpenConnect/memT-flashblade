@@ -1,16 +1,16 @@
 # MemT-1.0-Nano HF-transformers environment
 
-Venv: `/mnt/data/robert-scripts/m1t-test/.venv` (Python 3.12.3, system interpreter).
+Venv: `$M1T_ROOT/.venv` (Python 3.12.3, system interpreter), where `$M1T_ROOT` is the repo root.
 Frozen package list: `env/requirements-hf.txt`.
 
 ## Create
 
 ```bash
-cd /mnt/data/robert-scripts/m1t-test
-UV=/mnt/data/robert-scripts/gpu-scratch/uvbin/uv
-export UV_CACHE_DIR=/tmp/claude-1000/-mnt-data-robert-scripts-m1t-test/d52341ba-cd8c-4b9e-83de-e2ab4ba1debb/scratchpad/hf/uv-cache   # any local dir
+cd $M1T_ROOT
+UV=uv                                   # or the full path to your uv binary
+export UV_CACHE_DIR=$HOME/.cache/uv     # optional; any local dir
 $UV venv --python /usr/bin/python3.12 .venv
-# torch 2.13.0 on PyPI is the CUDA 13.0 build (2.13.0+cu130); same source as gpu-scratch/venv
+# torch 2.13.0 on PyPI is the CUDA 13.0 build (2.13.0+cu130); same build the reference GPU venv used
 $UV pip install --python .venv/bin/python \
     torch==2.13.0 transformers==5.12.1 accelerate==1.15.0 safetensors==0.8.0 \
     huggingface_hub numpy flash-linear-attention
@@ -36,8 +36,8 @@ Notes:
 ## Run
 
 ```bash
-cd /mnt/data/robert-scripts/m1t-test
-export HF_HOME=/mnt/data/robert-scripts/hf-cache HF_HUB_OFFLINE=1
+cd $M1T_ROOT
+export HF_HOME=${HF_HOME:-$HOME/.cache/huggingface} HF_HUB_OFFLINE=1   # cache holding MemT-1.0-Nano + BEAM
 CUDA_VISIBLE_DEVICES=0,1 .venv/bin/python bench/smoke_memt_hf.py > smoke.jsonl
 ```
 

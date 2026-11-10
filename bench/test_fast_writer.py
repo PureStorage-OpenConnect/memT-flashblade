@@ -10,6 +10,7 @@ Every result is a JSON line on stdout. Modes (run with CUDA_VISIBLE_DEVICES=2,3)
               greedy 32 tokens for 3 questions; commit_memory timing for a 2048 slice
 """
 import argparse
+import glob
 import importlib
 import json
 import os
@@ -21,12 +22,22 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import memt_fast_writer as fw  # noqa: E402
 
-SNAP = ("/mnt/data/robert-scripts/hf-cache/hub/models--MemTensor--MemT-1.0-Nano/snapshots/"
-        "30fe0b22422c4cc4c87475f98db5c8baa5c1a902")
-MODULES = "/mnt/data/robert-scripts/hf-cache/modules"
-DYN = "transformers_modules.MemTensor.MemT_hyphen_1_dot_0_hyphen_Nano.30fe0b22422c4cc4c87475f98db5c8baa5c1a902"
-SCRATCH = ("/tmp/claude-1000/-mnt-data-robert-scripts-m1t-test/d52341ba-cd8c-4b9e-83de-e2ab4ba1debb/"
-           "scratchpad/fastwriter")
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HF_HOME = os.path.expanduser(os.environ.get("HF_HOME", "~/.cache/huggingface"))
+
+
+def _single_snapshot(pattern):
+    hits = sorted(glob.glob(pattern))
+    if len(hits) != 1:
+        raise SystemExit(f"expected exactly one snapshot matching {pattern}, found {len(hits)}: {hits} "
+                         "(set HF_HOME and download MemTensor/MemT-1.0-Nano first)")
+    return hits[0]
+
+
+SNAP = _single_snapshot(os.path.join(HF_HOME, "hub", "models--MemTensor--MemT-1.0-Nano", "snapshots", "*"))
+MODULES = os.path.join(HF_HOME, "modules")
+DYN = "transformers_modules.MemTensor.MemT_hyphen_1_dot_0_hyphen_Nano." + os.path.basename(SNAP)
+SCRATCH = os.path.join(M1T_ROOT, "scratch_state", "fastwriter")
 MEM_LAYERS = list(range(3, 40, 4))
 
 

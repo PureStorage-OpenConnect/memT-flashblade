@@ -83,14 +83,16 @@ MiB = 1 << 20
 GiB = 1 << 30
 ALIGN = 4096
 
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Target directories. In the reference setup rdma = the FlashBlade NFSv3/RDMA mount, tcp = the same
+# filesystem mounted NFSv4.1/TCP, local = local NVMe; point M1T_E3_*_DIR at your equivalents.
 DEFAULT_TARGETS = {
-    "rdma": "/mnt/data/robert-scripts/m1t-test/scratch_state/e3",
-    "tcp": "/mnt/data_tcp/robert-scripts/m1t-test/scratch_state/e3",
-    "local": "/home/robert/e3_scratch",
+    "rdma": os.environ.get("M1T_E3_RDMA_DIR") or os.path.join(M1T_ROOT, "scratch_state", "e3"),
+    "tcp": os.environ.get("M1T_E3_TCP_DIR"),  # no default: a second mount of the same filesystem
+    "local": os.environ.get("M1T_E3_LOCAL_DIR") or os.path.expanduser("~/e3_scratch"),
 }
 DEFAULT_LENGTHS = [512, 2048, 8192, 32768, 65536, 131072, 262144]
-DEFAULT_OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           "results", "e3_persist_io.jsonl")
+DEFAULT_OUT = os.path.join(M1T_ROOT, "results", "e3_persist_io.jsonl")
 
 # --------------------------------------------------------------------------------------
 # State object specs
@@ -903,7 +905,8 @@ def _ints(s):
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--targets", default="rdma,tcp,local", help="comma list of rdma,tcp,local")
+    ap.add_argument("--targets", default="rdma,tcp,local",
+                    help="comma list of rdma,tcp,local; name=/path overrides that target's directory")
     ap.add_argument("--rdma-dir", default=DEFAULT_TARGETS["rdma"])
     ap.add_argument("--tcp-dir", default=DEFAULT_TARGETS["tcp"])
     ap.add_argument("--local-dir", default=DEFAULT_TARGETS["local"])
@@ -939,11 +942,26 @@ def parse_args(argv=None):
     ap.add_argument("--summary-run", default=None, help="comma list of run_ids to include")
     a = ap.parse_args(argv)
     q = a.quick
-    a.targets = [t for t in a.targets.split(",") if t]
     a.target_dirs = {"rdma": a.rdma_dir, "tcp": a.tcp_dir, "local": a.local_dir}
-    for t in a.targets:
+    names = []
+    for t in (t for t in a.targets.split(",") if t):
+        t, eq, path = t.partition("=")
         if t not in a.target_dirs:
             ap.error(f"unknown target {t}")
+        if eq:
+            a.target_dirs[t] = path
+        names.append(t)
+    a.targets = names
+    if a.summary is None:
+        print("e3 targets: " + ", ".join(f"{t}={a.target_dirs[t]}" for t in a.targets), file=sys.stderr)
+        missing = [t for t in a.targets if not a.target_dirs[t]]
+        if missing:
+            ap.error(f"no directory for target(s) {','.join(missing)}: set M1T_E3_TCP_DIR (a second mount of "
+                     "the same filesystem) or pass --targets tcp=/path")
+        same = [t for t in a.targets if t != "rdma" and a.target_dirs[t] == a.target_dirs.get("rdma")]
+        if "rdma" in a.targets and same:
+            print(f"warning: {','.join(same)} resolve to the same directory as rdma; set M1T_E3_TCP_DIR / "
+                  "M1T_E3_LOCAL_DIR (or --targets name=/path) to compare different mounts", file=sys.stderr)
     a.lengths = a.lengths or ([512, 2048] if q else DEFAULT_LENGTHS)
     a.objects = (a.objects or ("memt,kv" if q else "memt,kv,lora")).split(",")
     a.concurrency = a.concurrency or ([1, 8] if q else [1, 8, 32])

@@ -15,7 +15,7 @@ ttft_s = read + h2d + prefill, total_s (to the 128th token). Pin/alloc of the ho
 per file size, outside the timed region) and reported as alloc_pin_s.
 
 Example:
-  CUDA_VISIBLE_DEVICES=4,5 HF_HOME=/mnt/data/robert-scripts/hf-cache HF_HUB_OFFLINE=1 \
+  cd $M1T_ROOT && CUDA_VISIBLE_DEVICES=4,5 HF_HOME=$HF_HOME HF_HUB_OFFLINE=1 \
     .venv/bin/python bench/e4_memt_resume.py --systems nano,fullctx
 """
 from __future__ import annotations
@@ -33,6 +33,7 @@ import time
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+M1T_ROOT = os.environ.get("M1T_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 import e1_efficiency_sweep as e1  # noqa: E402  (sets PYTORCH_CUDA_ALLOC_CONF before torch import)
 import e3_persist_io as io  # noqa: E402
@@ -148,9 +149,9 @@ class Resumer:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--ids", default="/mnt/data/robert-scripts/m1t-test/scratch_state/e4/e4_ids.json")
-    ap.add_argument("--out", default="/mnt/data/robert-scripts/m1t-test/results/e4_memt_resume.jsonl")
-    ap.add_argument("--state-dir", default="/mnt/data/robert-scripts/m1t-test/scratch_state/e4")
+    ap.add_argument("--ids", default=os.path.join(M1T_ROOT, "scratch_state", "e4", "e4_ids.json"))
+    ap.add_argument("--out", default=os.path.join(M1T_ROOT, "results", "e4_memt_resume.jsonl"))
+    ap.add_argument("--state-dir", default=os.path.join(M1T_ROOT, "scratch_state", "e4"))
     ap.add_argument("--systems", default="nano,fullctx")
     ap.add_argument("--only", default="", help="comma list of <h>_<N> keys")
     ap.add_argument("--fullctx-max-n", type=int, default=262144)
