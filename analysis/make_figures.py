@@ -76,6 +76,7 @@ def read_jsonl(path):
 
 
 WARNINGS: list[str] = []
+E4_NOTES: list[str] = []
 QUALITY: list[str] = []
 CAPTIONS: "OrderedDict[str, str]" = OrderedDict()
 
@@ -770,16 +771,37 @@ def load_e4_ttft(res):
     p = os.path.join(res, "e4_pkva_resume.jsonl")
     if os.path.exists(p):
         recs = read_jsonl(p) or []
-        samples, stores, cfg = [], [], "pKVA"
-        for r in recs:  # kvstore records inherit the config of the sample they follow
-            if "ttft_s" in r:
-                cfg = str(r.get("config", cfg))
-                samples.append(dict(r, config=cfg))
-            elif "kvstore" in r:
-                stores.append(dict(r["kvstore"], config=str(r["kvstore"].get("config", cfg))))
-        if samples:
-            df = pd.json_normalize(samples, max_level=0)
-            return df, stores, "e4_pkva_resume.jsonl", False
+        keep = ("cold", "hot", "restored")
+        rows, other = [], {}
+        for r in recs:
+            lab = r.get("label")
+            if lab not in keep:
+                other[lab] = other.get(lab, 0) + 1
+                continue
+            if r.get("ttft_s") is None or r.get("N") is None:
+                continue
+            if lab == "restored" and r.get("valid") is not True:
+                other["restored (valid != True)"] = other.get("restored (valid != True)", 0) + 1
+                continue
+            rows.append({k: r.get(k) for k in ("run_id", "label", "N", "history_idx", "history_tokens",
+                                               "prompt_tokens", "ttft_s", "total_s", "cached_tokens",
+                                               "expected_hit_tokens", "sample", "bytes_written",
+                                               "files_written")})
+        if rows:
+            df = pd.DataFrame(rows)
+            df["N"] = df["N"].astype(int)
+            df["n_hist"] = df["N"]
+            df["config"] = "B"  # single vLLM config in this run (checkpoint every 16 blocks)
+            E4_NOTES.append("e4_pkva_resume.jsonl run " + ", ".join(sorted(df["run_id"].dropna().unique()))
+                            + f": plotted {', '.join(f'{k}={v}' for k, v in df.label.value_counts().items())}; "
+                            "excluded from plots: " + ", ".join(f"{k}={v}" for k, v in other.items())
+                            + " (filler_* evict the kva host pool, first_load_after_kva_start is the first "
+                            "load after a kva_server restart, end holds store_final)")
+            fin = [r.get("store_final") for r in recs if r.get("label") == "end" and r.get("store_final")]
+            if fin:
+                E4_NOTES.append(f"pKVA store at end of run: {fmt_bytes(fin[-1]['bytes'], 2)} in "
+                                f"{fin[-1]['files']} files (includes fillers)")
+            return df, None, "e4_pkva_resume.jsonl", False
     frames, stores = [], []
     for cfg in ("A", "B"):
         recs = read_jsonl(os.path.join(res, f"e4_feasibility_config{cfg}.jsonl"))
@@ -812,7 +834,10 @@ def fig_e4_pkva_ttft(e4, src, feas, out):
             h = g[g.label == cond]
             if not len(h):
                 continue
-            med = h.groupby("n_hist")["ttft_s"].median().reset_index()
+            med = h.groupby("n_hist")["ttft_s"].agg(["median", "min", "max"]).reset_index()
+            med["ttft_s"] = med["median"]
+            if h.groupby("n_hist").size().max() > 1:
+                ax.fill_between(med["n_hist"], med["min"], med["max"], color=c, alpha=0.15, linewidth=0)
             ax.plot(med["n_hist"], med["ttft_s"], color=c, marker=m, label=lab)
             r = med.iloc[-1]
             end_label(ax, r["n_hist"], r["ttft_s"], fmt_seconds(round(r["ttft_s"], 2)) if r["ttft_s"] >= 1
@@ -820,14 +845,27 @@ def fig_e4_pkva_ttft(e4, src, feas, out):
         n_axis(ax, ns)
         ax.set_xlim(ns[0] / 1.4, ns[-1] * 2.6)
         ax.set_title(f"config {cfg}" + (" (checkpoint every chunk)" if cfg == "A" else
-                                         " (checkpoint every 16 blocks)" if cfg == "B" else ""))
+                                         " (checkpoint every 16 blocks)" if cfg == "B" else "")
+                     if feas else "pKVA on FlashBlade RDMA, config B (MNBT 16896)")
         sec_axis(ax, 0.04, max(20, e4["ttft_s"].max() * 1.5))
     axes[0][0].set_ylabel("TTFT, 512-token query (vLLM TP2 + pKVA)")
     axes[0][0].legend(loc="upper left", fontsize=8)
     tag = "FEASIBILITY (1 history, 1 sample per point) " if feas else ""
+    if not feas:
+        cnt = e4.groupby("n_hist")["history_idx"].nunique()
+        tag = ""
     fig.suptitle(f"E4  {tag}Full-context TTFT on vLLM with KV persisted to FlashBlade", x=0.01, ha="left",
                  fontweight="bold", color=TXT)
     fig.tight_layout()
+    if not feas:
+        save(fig, out, name,
+             f"Source {src}. Qwen3.6-35B-A3B on vLLM 0.32 TP2 + pKVA 1.3.0, KV store on FlashBlade NFSv3/RDMA, "
+             "512-token query. Median per N with min-max band over "
+             + ", ".join(f"{fmt_tokens(n)}:{c}" for n, c in cnt.items()) + " histories. cold = first request "
+             "(prefill computed, KV written); hot = repeat with GPU prefix-cache hit; restored = after a kva_server "
+             "restart plus a filler history to evict host/GPU caches, so the KV is read back from FlashBlade "
+             "(only samples with valid == True, i.e. cached tokens matched the expected hit).")
+        return
     save(fig, out, name,
          f"Source {src}. Qwen3.6-35B-A3B on vLLM TP2 with PureKVConnector writing KV to FlashBlade. "
          "cold = no cache; hot = GPU prefix cache; reset = POST /reset_prefix_cache with kva_server alive "
@@ -837,6 +875,15 @@ def fig_e4_pkva_ttft(e4, src, feas, out):
 
 
 def e4_bytes(e4, stores):
+    if e4 is not None and "bytes_written" in e4 and e4["bytes_written"].notna().any():
+        c = e4[(e4.label == "cold") & e4["bytes_written"].notna()].copy()
+        c["bpt"] = c["bytes_written"] / c["history_tokens"]
+        g = c.groupby(["config", "N"]).agg(prompt_tokens=("history_tokens", "median"),
+                                           delta=("bytes_written", "median"), files=("files_written", "median"),
+                                           bytes_per_token=("bpt", "median"), n_hist=("history_idx", "nunique"))
+        g = g.reset_index().rename(columns={"N": "n"})
+        g.attrs["tokens"] = "history tokens"
+        return g
     if not stores:
         return None
     s = pd.DataFrame(stores)
@@ -849,7 +896,9 @@ def e4_bytes(e4, stores):
         s["prompt_tokens"] = s["n"]
     s["bytes_per_token"] = s["delta"] / s["prompt_tokens"]
     s["files"] = s["files_after"] - s["files_before"]
-    return s[["config", "n", "prompt_tokens", "delta", "files", "bytes_per_token"]]
+    s = s[["config", "n", "prompt_tokens", "delta", "files", "bytes_per_token"]]
+    s.attrs["tokens"] = "prompt tokens"
+    return s
 
 
 def fig_e4_bytes(bt, feas, out):
@@ -860,6 +909,9 @@ def fig_e4_bytes(bt, feas, out):
     ns = sorted(bt["n"].unique())
     styles = {"A": (C_KV, "o", "-"), "B": (C_KV, "s", ":")}
     lab = {"A": "config A (checkpoint every chunk)", "B": "config B (every 16 blocks)"}
+    if not feas:
+        lab = {"B": "pKVA config B (every 16 blocks), median over histories"}
+        styles = {"B": (C_KV, "o", "-")}
     for cfg, g in bt.groupby("config"):
         c, m, ls = styles.get(cfg, (C_KV, "o", "-"))
         g = g.sort_values("n")
@@ -875,7 +927,7 @@ def fig_e4_bytes(bt, feas, out):
     axes[0].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / KIB:.0f} KiB"))
     axes[0].yaxis.set_minor_formatter(NullFormatter())
     axes[0].set_ylim(10 * KIB, 160 * KIB)
-    axes[0].set_ylabel("bytes on FlashBlade per prompt token")
+    axes[0].set_ylabel(f"bytes on FlashBlade per {bt.attrs.get('tokens', 'prompt token').rstrip('s')}")
     axes[0].set_title("Per token")
     xs = np.array([ns[0], ns[-1]], dtype=float)
     axes[1].plot(xs, 20 * KIB * xs, color=TXT2, linewidth=1.2, label="20 KiB/token x N")
@@ -892,9 +944,12 @@ def fig_e4_bytes(bt, feas, out):
     fig.suptitle(f"E4  {tag}pKVA bytes written to FlashBlade by the cold request", x=0.01, ha="left",
                  fontweight="bold", color=TXT)
     fig.tight_layout()
+    src = ("bytes_written / files_written of the cold request in e4_pkva_resume.jsonl, divided by history "
+           "tokens, median over histories" if not feas else
+           "Growth of the pKVA store directory during the cold request (feasibility kvstore records), divided by "
+           "prompt tokens (history + 512-token query + template)")
     save(fig, out, name,
-         "Growth of the pKVA store directory during the cold request at each history length, divided by "
-         "prompt tokens (history + 512-token query + template). The 20 KiB/token line is the attention-only KV "
+         src + ". The 20 KiB/token line is the attention-only KV "
          "of Qwen3.6-35B-A3B; anything above it is GDN/mamba state checkpoints. Right panel: same data per "
          "session with the 40 MiB MemT-Nano snapshot for reference.")
 
@@ -918,9 +973,15 @@ def fig_e4_memt_resume(res, out):
         return not_available(name, f"e4_memt_resume.jsonl schema not recognised (fields: {list(df.columns)[:30]})")
     if "status" in df:
         df = df[df.status.fillna("ok") == "ok"]
+    if "label" in df and scol != "label":
+        df = df[df["label"].astype(str).str.startswith("odirect")]
+    if not len(df):
+        return not_available(name, "no odirect samples in e4_memt_resume.jsonl yet")
     g = df.groupby([scol, ncol])[[c for _, c in stages]].median().reset_index()
-    systems = list(dict.fromkeys(g[scol]))
+    order = {"nano": 0, "memt": 0, "fullctx": 1}
+    systems = sorted(dict.fromkeys(g[scol]), key=lambda x: order.get(str(x), 9))
     ns = sorted(g[ncol].unique())
+    sysname = {"nano": "MemT-Nano snapshot", "fullctx": "HF full-context KV"}
     fig, ax = plt.subplots(figsize=(8.4, 4.6))
     width = 0.8 / max(1, len(systems))
     shades = {"read": 1.0, "h2d": 0.6, "prefill": 0.3}
@@ -932,16 +993,21 @@ def fig_e4_memt_resume(res, out):
         for st, c in stages:
             v = h[c].fillna(0).values
             ax.bar(x, v, width * 0.92, bottom=bottom, color=base, alpha=shades[st],
-                   edgecolor=BG, linewidth=1, label=f"{s}: {st}")
+                   edgecolor=BG, linewidth=1, label=f"{sysname.get(s, s)}: {st}")
             bottom += v
     ax.set_xticks(np.arange(len(ns)))
     ax.set_xticklabels([fmt_tokens(n) for n in ns])
+    ax.grid(axis="x", visible=False)
     ax.set_xlabel("history length N (tokens)")
     ax.set_ylabel("seconds (median)")
     ax.set_title("E4  Resume stage breakdown: MemT snapshot vs HF KV restore")
     ax.legend(fontsize=8, ncol=2, loc="upper left")
-    save(fig, out, name, "Stage breakdown (read from FlashBlade / host-to-device copy / query prefill) for "
-         f"resuming a session; median across samples. Source e4_memt_resume.jsonl, fields {[c for _, c in stages]}.")
+    cnt = df.groupby([scol, ncol]).size()
+    save(fig, out, name, "Resume of a saved session from FlashBlade (NFSv3/RDMA) on HF transformers, 2x A100: "
+         "O_DIRECT read into a pinned host pool, host-to-device copy, then the 512-token query prefill (first "
+         "token). Median over 'odirect*' samples ("
+         + ", ".join(f"{s}@{fmt_tokens(n)}:{c}" for (s, n), c in cnt.items()) +
+         f"); pagecache_warm samples excluded. Source e4_memt_resume.jsonl (live), fields {[c for _, c in stages]}.")
 
 
 # ------------------------------------------------------------------ summary
@@ -1118,7 +1184,26 @@ def build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4fea
 
     # E4
     L.append("\n## E4  vLLM + pKVA production path\n")
-    if e4 is not None:
+    if e4 is not None and not e4feas:
+        L.append(f"Source {e4src} (vLLM TP2 + pKVA config B, KV store on FlashBlade RDMA).\n")
+        rows = []
+        for n, g in e4.groupby("N"):
+            r = {"N": fmt_tokens(n)}
+            for lab in ("cold", "hot", "restored"):
+                h = g[g.label == lab]["ttft_s"] * 1e3
+                r[f"{lab} TTFT ms"] = f"{h.median():.0f} [{h.min():.0f}-{h.max():.0f}] n={len(h)}" if len(h) else ""
+            if bt is not None and n in set(bt["n"]):
+                b = bt[bt.n == n].iloc[0]
+                r["KiB/token"] = f"{b['bytes_per_token'] / KIB:.1f}"
+                r["bytes/history"] = fmt_bytes(b["delta"], 2)
+                r["files/history"] = f"{b['files']:.0f}"
+            rows.append(r)
+        L.append("pKVA TTFT by N, median [min-max] n (restored: valid samples only); bytes written by the cold "
+                 "request, median per history (KiB/token = bytes_written / history_tokens):\n")
+        L.append(md_table(pd.DataFrame(rows).astype(object).fillna("")))
+        for nt in E4_NOTES:
+            L.append(f"- {nt}\n")
+    if e4 is not None and e4feas:
         if e4feas:
             L.append("**Feasibility data only** (1 history, 1 sample per condition; e4_pkva_resume.jsonl "
                      "not yet available).\n")
@@ -1135,10 +1220,51 @@ def build_summary(args, ok, allc, files, val, e2, e3, replaced, e4, e4src, e4fea
             L.append("\nBytes written to the pKVA store by the cold request:\n")
             L.append(md_table(b[["config", "n", "prompt_tokens", "delta", "files", "KiB/token"]],
                               {"KiB/token": "{:.1f}"}))
-    else:
+    elif e4 is None:
         L.append("_No E4 data._\n")
-    if not os.path.exists(os.path.join(args.results, "e4_memt_resume.jsonl")):
+    mr = read_jsonl(os.path.join(args.results, "e4_memt_resume.jsonl"))
+    if not mr:
         L.append("\ne4_memt_resume.jsonl: not yet available.\n")
+    else:
+        L.append("\n### MemT snapshot vs HF KV resume from FlashBlade (e4_memt_resume.jsonl, live)\n")
+        m = pd.DataFrame(mr)
+        need = {"N", "system", "label"}
+        if not need <= set(m.columns):
+            L.append(f"_schema not recognised: {list(m.columns)[:30]}_\n")
+        else:
+            save_b = m[m.label == "save"].groupby(["N", "system"])["file_bytes"].median() \
+                if "file_bytes" in m else pd.Series(dtype=float)
+            od = m[m.label.astype(str).str.startswith("odirect")]
+            rows = []
+            for (n, s), g in od.groupby(["N", "system"]):
+                r = {"N": fmt_tokens(n), "system": s, "n": len(g),
+                     "histories": g["history_idx"].nunique() if "history_idx" in g else ""}
+                for c, lab in (("read_s", "read ms"), ("h2d_s", "h2d ms"), ("prefill_s", "prefill ms"),
+                               ("ttft_s", "TTFT ms")):
+                    r[lab] = g[c].median() * 1e3 if c in g else np.nan
+                r["total s"] = g["total_s"].median() if "total_s" in g else np.nan
+                fb = save_b.get((n, s), np.nan)
+                if fb != fb and "bytes" in g:
+                    fb = g["bytes"].median()
+                r["file_bytes"] = fmt_bytes(fb, 2) if fb == fb else ""
+                rows.append(r)
+            t = pd.DataFrame(rows)
+            if len(t):
+                t["_o"] = t["system"].map({"nano": 0, "fullctx": 1})
+                t = t.sort_values(["_o"], kind="stable").drop(columns="_o")
+                t = t.sort_values("N", key=lambda c: c.map(lambda x: dict((fmt_tokens(v), i) for i, v in
+                                                                          enumerate(NS)).get(x, 99)), kind="stable")
+            L.append("Medians over O_DIRECT ('odirect*') samples; TTFT = restore (read + h2d + pool) + query "
+                     "prefill; total = TTFT + 128-token decode.\n")
+            L.append(md_table(t, {"read ms": "{:.1f}", "h2d ms": "{:.1f}", "prefill ms": "{:.0f}",
+                                  "TTFT ms": "{:.0f}", "total s": "{:.2f}"}))
+            pw = m[m.label.astype(str).str.startswith("pagecache_warm")]
+            if len(pw) and "read_s" in pw:
+                L.append(f"\npagecache_warm samples (excluded above): median read {pw['read_s'].median() * 1e3:.1f} ms "
+                         f"(n={len(pw)}).\n")
+            done = od.groupby(["system"])["N"].max().to_dict()
+            L.append(f"Largest N with odirect samples so far: {done}. Run ids: "
+                     f"{', '.join(sorted(m['run_id'].dropna().unique())) if 'run_id' in m else '?'}.\n")
 
     # captions + quality
     L.append("\n## Figures and captions\n")

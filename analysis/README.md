@@ -38,7 +38,13 @@ $UV pip install --python .venv-analysis/bin/python -r env/requirements-analysis.
 Every figure is written as PNG (200 dpi, 2x) and SVG. Captions are printed to stdout and collected
 in `results/summary.md`, together with auto-detected data-quality notes.
 
-`e4_memt_resume.jsonl` is parsed loosely: N from one of `N / n_hist / history_len / length`, the
+`e4_pkva_resume.jsonl` (when present) supersedes the feasibility files: x = `N`, series = `label` in
+{cold, hot, restored} with restored limited to `valid == True`; filler_*, first_load_after_kva_start and
+end records are excluded from plots and counted in a note. Bytes come from `bytes_written` /
+`files_written` on cold records (B/token = bytes_written / history_tokens, median over histories).
+
+`e4_memt_resume.jsonl` uses only `odirect*` samples (pagecache_warm reported separately; save records
+give file_bytes) and is parsed loosely: N from one of `N / n_hist / history_len / length`, the
 system from `system / kind / path / object / label`, and stages from the first `read*_s`, `h2d*_s`,
 `prefill*_s` scalar fields. If the schema differs, the figure is skipped with the field list printed;
 adjust `fig_e4_memt_resume` accordingly.
